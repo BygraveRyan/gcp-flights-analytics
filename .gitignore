@@ -1,0 +1,38 @@
+# Credentials — NEVER commit
+*.json
+*sa-key*
+.env
+*.env
+secrets/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+
+# dbt
+dbt/target/
+dbt/dbt_packages/
+dbt/logs/
+dbt/profiles.yml
+
+# macOS
+.DS_Store
+.AppleDouble
+
+# VS Code
+.vscode/
+*.code-workspace
+
+# Spark
+spark-warehouse/
+derby.log
+
+# Terraform (if added later)
+*.tfstate
+*.tfstate.backup
+.terraform/
