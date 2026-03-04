@@ -205,3 +205,35 @@ flights-analytics/
 └── vertex_ai/
     └── gemini_experimental.py
 ```
+
+---
+
+## 🤖 AI & GIT CONVENTIONS
+
+### Commit Message Format
+All commits follow: `type(scope): description`
+- **Types:** feat, fix, docs, refactor, chore, test
+- **Scopes:** cloud-functions, spark, bigquery, dbt, composer, dataplex, cicd, docs, infra
+
+### Python 3.12 Standards (MANDATORY)
+- **Typing:** Never use `from typing import Tuple, Dict`. 
+- **Rule:** Use native lowercase types: `dict[str, Any]`, `list[int]`, `tuple[str, int]`.
+- **Reason:** Required for Cloud Functions Gen2 runtime stability.
+
+### Pull Request & Merging
+- **Title:** `feat: phase X — description`
+- **Merge Style:** Squash and merge only.
+- **Sync:** After every merge run all three commands:
+```bash
+  git checkout dev
+  git pull origin main
+  git push origin dev
+```
+- **Scope note:** Never use `docs` as a scope. Use the specific area e.g. `gemini`, `architecture`, `readme`
+
+## 📁 Repository Structure Reference
+gcp-flights-analytics/
+├── .github/pull_request_template.md    # PR structure
+├── GEMINI.md                            # This file
+└── docs/architecture.md                 # Technical source of truth
+
