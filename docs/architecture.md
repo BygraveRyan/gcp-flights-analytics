@@ -9,19 +9,19 @@
 flowchart TD
     subgraph Sources["📡 Data Sources"]
         S1["BTS On-Time CSV\n(Monthly ~600K rows)"]
-        S2["OpenSky REST API\n(~50K rows/day)"]
+        S2["FR24 API v1\n(~50K rows/day)"]
         S3["BQ Public: FAA Airports\nbigquery-public-data.faa"]
         S4["BQ Public: Airline IDs\nbigquery-public-data.airline_id"]
     end
 
     subgraph Ingestion["⚡ Ingestion — Cloud Functions Gen2"]
         CF1["fn-ingest-bts-csv\n(HTTP trigger, GCS write)"]
-        CF2["fn-ingest-opensky\n(Scheduled, GCS write)"]
+        CF2["fn-ingest-fr24\n(Scheduled, GCS write)"]
     end
 
     subgraph Bronze["🥉 GCS Bronze — Raw Zone (30d TTL)"]
         B1["gs://flights-bronze/bts/\nraw CSV files"]
-        B2["gs://flights-bronze/opensky/\nraw JSON files"]
+        B2["gs://flights-bronze/fr24/\nraw JSON files"]
     end
 
     subgraph DataprocSilver["⚙️ Dataproc Serverless — Bronze→Silver"]
@@ -69,7 +69,7 @@ flowchart TD
 
     subgraph Composer["🎼 Cloud Composer 3 — DAG Orchestration"]
         DAG["flights_daily_pipeline DAG\n06:00 UTC Schedule\nGit Sync from GitHub"]
-        T1["ingest_bts_csv"]
+        T1["ingest_bts_csv, ingest_fr24"]
         T2["bronze_to_silver\nDataprocCreateBatchOperator"]
         T3["silver_to_gold\nDataprocCreateBatchOperator"]
         T4["dbt_run\nBashOperator"]
@@ -444,10 +444,10 @@ google-cloud-storage==2.18.2
 requests==2.32.3
 ```
 
-**File:** `cloud_functions/ingest_opensky/main.py`
+**File:** `cloud_functions/ingest_fr24/main.py`
 ```python
 """
-Cloud Function Gen2 — OpenSky Network REST API Ingestion.
+Cloud Function Gen2 — FlightRadar24 API v1 Ingestion.
 Fetches live flight positions for a bounding box covering UK/EU airspace.
 Python 3.12
 """
@@ -457,6 +457,7 @@ import json
 import logging
 from datetime import datetime, timezone
 from google.cloud import storage
+from google.cloud import secretmanager
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -464,47 +465,48 @@ logger = logging.getLogger(__name__)
 PROJECT_ID = "flights-analytics-prod"
 BRONZE_BUCKET = "flights-bronze-flights-analytics-prod"
 
-# Bounding box: UK + NW Europe (lat_min, lat_max, lon_min, lon_max)
-OPENSKY_URL = (
-    "https://opensky-network.org/api/states/all"
-    "?lamin=49.0&lomin=-8.5&lamax=61.5&lomax=10.5"
-)
+# Bounding box: UK + NW Europe (north, south, west, east)
+FR24_URL = "https://fr24api.flightradar24.com/api/live/flight-positions/full"
+FR24_BOUNDS = "61.5,49.0,-8.5,10.5"
+FR24_SECRET_ID = "fr24-api-key"
 
-OPENSKY_COLUMNS = [
-    "icao24", "callsign", "origin_country", "time_position", "last_contact",
-    "longitude", "latitude", "baro_altitude", "on_ground", "velocity",
-    "true_track", "vertical_rate", "sensors", "geo_altitude", "squawk",
-    "spi", "position_source", "category",
-]
+
+def _get_secret(project_id: str, secret_id: str, version_id: str = "latest") -> str:
+    """Retrieves a secret from Google Cloud Secret Manager."""
+    client = secretmanager.SecretManagerServiceClient()
+    name = f"projects/{project_id}/secrets/{secret_id}/versions/{version_id}"
+    response = client.access_secret_version(request={"name": name})
+    return response.payload.data.decode("UTF-8")
 
 
 @functions_framework.http
-def ingest_opensky(request):
-    """HTTP-triggered function to fetch OpenSky states and write NDJSON to Bronze GCS."""
+def ingest_fr24(request):
+    """HTTP-triggered function to fetch FR24 positions and write NDJSON to Bronze GCS."""
     try:
-        logger.info(f"Fetching OpenSky data from: {OPENSKY_URL}")
-        response = requests.get(OPENSKY_URL, timeout=60)
-        response.raise_for_status()
-        data = response.json()
+        now_utc = datetime.now(timezone.utc)
+        api_key = _get_secret(PROJECT_ID, FR24_SECRET_ID)
 
-        states = data.get("states", [])
-        if not states:
-            logger.warning("No flight states returned from OpenSky API")
+        headers = {"Accept-Version": "v1", "Authorization": f"Bearer {api_key}"}
+        params = {"bounds": FR24_BOUNDS}
+
+        response = requests.get(FR24_URL, headers=headers, params=params, timeout=60)
+        response.raise_for_status()
+        flights = response.json().get("data", [])
+
+        if not flights:
             return {"status": "success", "rows_written": 0}, 200
 
-        now_utc = datetime.now(timezone.utc)
         ingestion_ts = now_utc.isoformat()
         ndjson_lines = []
-        for state in states:
-            record = dict(zip(OPENSKY_COLUMNS, state))
+        for flight in flights:
+            record = flight.copy()
             record["ingestion_timestamp"] = ingestion_ts
             ndjson_lines.append(json.dumps(record))
 
         ndjson_content = "\n".join(ndjson_lines)
-        run_ts = now_utc.strftime("%Y%m%d_%H%M%S")
         blob_name = (
-            f"opensky/{now_utc.year}/{now_utc.month:02d}/"
-            f"{now_utc.day:02d}/states_{run_ts}.ndjson"
+            f"fr24/{now_utc.year}/{now_utc.month:02d}/"
+            f"{now_utc.day:02d}/positions_{now_utc.strftime('%Y%m%d_%H%M%S')}.ndjson"
         )
 
         gcs_client = storage.Client(project=PROJECT_ID)
@@ -512,18 +514,13 @@ def ingest_opensky(request):
         blob = bucket.blob(blob_name)
         blob.upload_from_string(ndjson_content, content_type="application/x-ndjson")
 
-        rows_written = len(ndjson_lines)
-        logger.info(f"Wrote {rows_written:,} flight states to gs://{BRONZE_BUCKET}/{blob_name}")
         return {
             "status": "success",
             "gcs_path": f"gs://{BRONZE_BUCKET}/{blob_name}",
-            "rows_written": rows_written,
+            "rows_written": len(flights),
             "fetch_timestamp": ingestion_ts,
         }, 200
 
-    except requests.HTTPError as e:
-        logger.error(f"HTTP error from OpenSky API: {e}")
-        return {"status": "error", "message": str(e)}, 500
     except Exception as e:
         logger.error(f"Unexpected error: {e}", exc_info=True)
         return {"status": "error", "message": str(e)}, 500
@@ -545,13 +542,13 @@ gcloud functions deploy fn-ingest-bts-csv \
   --memory=512Mi \
   --project=flights-analytics-prod
 
-# Deploy OpenSky ingest function
-gcloud functions deploy fn-ingest-opensky \
+# Deploy FR24 ingest function
+gcloud functions deploy fn-ingest-fr24 \
   --gen2 \
   --runtime=python312 \
   --region=europe-west2 \
-  --source=cloud_functions/ingest_opensky \
-  --entry-point=ingest_opensky \
+  --source=cloud_functions/ingest_fr24 \
+  --entry-point=ingest_fr24 \
   --trigger-http \
   --no-allow-unauthenticated \
   --service-account=flights-pipeline-sa@flights-analytics-prod.iam.gserviceaccount.com \
@@ -2975,8 +2972,8 @@ flights-analytics/
 │   ├── ingest_bts_csv/
 │   │   ├── main.py                    # BTS CSV ingestion CF Gen2
 │   │   └── requirements.txt
-│   └── ingest_opensky/
-│       ├── main.py                    # OpenSky API ingestion CF Gen2
+│   └── ingest_fr24/
+│       ├── main.py                    # FR24 API ingestion CF Gen2
 │       └── requirements.txt
 │
 ├── spark_jobs/
