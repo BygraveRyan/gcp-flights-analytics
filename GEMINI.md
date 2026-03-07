@@ -1,207 +1,145 @@
 # GEMINI.md - Project `flights-analytics-prod`
 
-This document provides an authoritative guide for the Gemini agent. Adhere strictly to these conventions and instructions when performing any software engineering task within this repository.
+<project_identity>
+
+- Project ID: `flights-analytics-prod`
+- Region: `europe-west2`
+- Python Version: `3.12`
+- Key Libraries: PySpark 3.5, dbt Core 1.8.x, Airflow 2.10.3 (Composer 3), google-cloud-storage 2.18.2, functions-framework 3.8.1
+</project_identity>
+
+<critical_constraints>
+The Agent MUST adhere to these absolute negative constraints at all times:
+
+- NEVER use placeholder comments like `# TODO` or `...`. Implement logic completely.
+- NEVER use Legacy SQL. Always write BigQuery Standard SQL (`standard#`).
+- NEVER use `from typing import Tuple, Dict`. Always use native Python 3.12 lowercase types: `dict[str, Any]`, `list[int]`, `tuple[str, int]`.
+- NEVER use `functions_framework.Request` as a type hint; use `Any` for HTTP request parameters.
+- NEVER assume or guess file locations. The repository structure is dynamic.
+- NEVER use `docs` as a git commit scope. Use specific areas (e.g., `gemini`, `architecture`, `readme`).
+</critical_constraints>
+
+<agent_directives>
+
+### 1. File System & Context
+
+- Always use the GitHub MCP or available file system tools to read the current directory state before attempting to edit, create, or delete files.
+- Use the Gemini CLI for generating/editing code, multi-file scaffolding, and explaining errors.
+
+### 2. Code Generation Rules
+
+- Always include the standard `logging` module in all Python files (`cloud_functions/` and `spark_jobs/`), logging key operations (I/O, API calls) and exceptions (`exc_info=True`).
+- Always add appropriate `try...except` error handling in Python for I/O and API calls, raising exceptions only for unrecoverable errors.
+- All dbt models must include a `{{ config(...) }}` block at the top specifying `materialized`, `tags`, and `labels`.
+- Treat PySpark DataFrames as immutable. Create new DataFrames for each transformation step.
+- Repartition PySpark data before writing to GCS (`.repartition("partition_key")`).
+
+### 3. Git & Commits
+
+- Commit Message Format: `type(scope): description`
+- Valid Types: `feat`, `fix`, `docs`, `refactor`, `chore`, `test`
+- Valid Scopes: `cloud-functions`, `spark`, `bigquery`, `dbt`, `composer`, `dataplex`, `cicd`, `infra`, `architecture`
+- PR Title Format: `feat: phase X — description`
+</agent_directives>
+
+<runbook_synchronization_protocol>
+
+### Trigger
+
+When the Agent detects the User describing or performing terminal-based infrastructure tasks (e.g., `gcloud` commands, secret management, IAM configs, troubleshooting sequences).
+
+### Action Pipeline
+
+1. **Context Retrieval**: Use the `github_mcp` tool to `read_file` at path `docs/runbook.md` to get the live state.
+2. **Schema Extraction**: Analyze the live `docs/runbook.md` for header formats, content blocks, and "lessons learned" patterns.
+3. **Drafting Phase**: Generate a new entry draft within the conversation using exact terminal syntax and the identified schema.
+4. **Verification Loop (Mandatory)**: Present the draft in a Markdown code block. Wait for explicit user confirmation before using `github_mcp` to write or push changes to `docs/runbook.md`.
+</runbook_synchronization_protocol>
+
+<user_protocols>
+The User will execute the following directly in the terminal (not through the Agent):
+
+- All `gcloud` commands
+- All `bq` CLI commands
+- All `git` commands
+- All `curl` tests
+- Any command modifying GCP infrastructure
+- Post-merge synchronization: `git checkout dev`, `git pull origin main`, `git push origin dev`
+</user_protocols>
 
 ---
 
-## 1. PROJECT IDENTITY
+## 🏗️ ARCHITECTURE & DATA FLOW
 
-- **Project ID**: `flights-analytics-prod`
-- **Region**: `europe-west2`
-- **Python Version**: `3.12`
-- **Key Libraries**:
-    - PySpark: `3.5`
-    - dbt Core: `1.8.x`
-    - Airflow: `2.10.3` (via Cloud Composer 3)
-    - google-cloud-storage: `2.18.2`
-    - functions-framework: `3.8.1`
+<architecture_summary>
 
----
+### GCS Lakehouse Zones
 
-## 2. ARCHITECTURE SUMMARY
+- **Bronze Zone (Raw)**: `gs://flights-bronze-flights-analytics-prod` (TTL: 30 days) - Raw CSV/JSON.
+- **Silver Zone (Validated)**: `gs://flights-silver-flights-analytics-prod` (TTL: 90 days) - Cleaned, schema-enforced Parquet.
+- **Gold Zone (Business)**: `gs://flights-gold-flights-analytics-prod` (TTL: Indefinite) - Aggregates/features for analytics.
 
-### 2.1. GCS Lakehouse Zones
+### BigQuery Datasets
 
-- **Bronze Zone (Raw)**
-    - **Bucket**: `gs://flights-bronze-flights-analytics-prod`
-    - **Purpose**: Raw, unaltered data from sources (CSV, JSON).
-    - **TTL**: 30 days
-- **Silver Zone (Validated)**
-    - **Bucket**: `gs://flights-silver-flights-analytics-prod`
-    - **Purpose**: Cleaned, schema-enforced, deduplicated data in Parquet format.
-    - **TTL**: 90 days
-- **Gold Zone (Business)**
-    - **Bucket**: `gs://flights-gold-flights-analytics-prod`
-    - **Purpose**: Business-level aggregates and features for analytics.
-    - **TTL**: Indefinite
+- `flights_raw`: External tables pointing to GCS Silver zone.
+- `flights_staging`: dbt staging models (views).
+- `flights_dw`: Core data warehouse with facts (SCD-2) and dimensions.
+- `flights_marts`: Reporting-layer tables for Looker Studio.
 
-### 2.2. BigQuery Datasets
+### Data Flow Pipeline
 
-- **`flights_raw`**: External tables pointing to GCS Silver zone.
-- **`flights_staging`**: dbt staging models (views).
-- **`flights_dw`**: Core data warehouse with facts (SCD-2) and dimensions.
-- **`flights_marts`**: Reporting-layer tables aggregated for consumption by Looker Studio.
+1. Sources -> `cloud_functions/fn-ingest-*` -> Bronze GCS
+2. Bronze -> `bronze_to_silver.py` (Dataproc) -> Silver GCS
+3. Silver -> `silver_to_gold.py` (Dataproc) -> Gold GCS
+4. Gold -> `flights_raw` (External Tables)
+5. `flights_raw` -> dbt Models -> `flights_dw` & `flights_marts`
+</architecture_summary>
 
-### 2.3. Data Flow
+<data_contracts>
 
-1.  **Sources**: BTS (CSV), OpenSky (API), FAA Airports (BQ Public), Airline IDs (BQ Public)
-2.  **Ingestion (Cloud Functions)**: `fn-ingest-bts-csv` and `fn-ingest-opensky` write raw data to the **Bronze** GCS bucket.
-3.  **Bronze → Silver (Dataproc)**: `bronze_to_silver.py` PySpark job enforces schema, deduplicates, and writes validated Parquet to the **Silver** GCS bucket.
-4.  **Silver → Gold (Dataproc)**: `silver_to_gold.py` PySpark job enriches, aggregates, and writes business-level Parquet to the **Gold** GCS bucket.
-5.  **Gold → BigQuery**: External tables in `flights_raw` read from Gold GCS buckets.
-6.  **dbt Transformation**: dbt runs models to build staging views, intermediate tables, and final dimension/fact tables in the `flights_dw` and `flights_marts` datasets.
-7.  **Looker Studio**: Dashboards query the `flights_marts` and `flights_dw` views for reporting.
+### Delay Categories (`delay_category` column)
 
----
+- SEVERE_DELAY: `arr_delay_minutes > 60`
+- MODERATE_DELAY: `15 < arr_delay_minutes <= 60`
+- MINOR_DELAY: `0 < arr_delay_minutes <= 15`
+- ON_TIME: `arr_delay_minutes <= 0`
+- CANCELLED: `is_cancelled = TRUE`
+- DIVERTED: `is_diverted = TRUE`
 
-## 3. SERVICE ACCOUNTS & IAM
+### SCD-2 Fields (`dim_*` tables)
 
-- **Pipeline Runner SA**: `flights-pipeline-sa@flights-analytics-prod.iam.gserviceaccount.com`
-    - **Roles**: `roles/bigquery.dataEditor`, `roles/bigquery.jobUser`, `roles/storage.objectAdmin`, `roles/dataproc.editor`, `roles/dataplex.editor`, `roles/aiplatform.user`, `roles/composer.worker`, `roles/cloudfunctions.invoker`.
-- **Dataproc SA**: `flights-dataproc-sa@flights-analytics-prod.iam.gserviceaccount.com`
-    - **Roles**: `roles/bigquery.dataEditor`, `roles/bigquery.jobUser`, `roles/storage.objectAdmin`, `roles/dataproc.worker`.
-- **CI/CD SA**: `flights-cicd-sa@flights-analytics-prod.iam.gserviceaccount.com`
-    - **Roles**: `roles/bigquery.dataEditor`, `roles/bigquery.jobUser`, `roles/storage.objectAdmin`, `roles/dataproc.editor`, `roles/cloudfunctions.developer`, `roles/iam.serviceAccountTokenCreator`.
+- `is_current` (BOOL): TRUE if active record.
+- `effective_from` (DATE): Date version became active.
+- `effective_to` (DATE): Date version expired (NULL for current).
+- `row_hash` (STRING): MD5 of business attribute columns.
+
+### BigQuery Partitioning & Clustering
+
+- `fact_flights`: PARTITION BY `flight_date`, CLUSTER BY `carrier_code`, `origin_airport`.
+- `mart_delay_summary`: PARTITION BY `summary_date`, CLUSTER BY `carrier_code`.
+</data_contracts>
 
 ---
 
-## 4. CODING CONVENTIONS
+## 📋 CONVENTIONS & CONFIGURATION
 
-### 4.1. Python (Cloud Functions & PySpark)
+<naming_conventions>
 
-- **Style**: Adhere to PEP 8. Use `black` and `isort` for formatting.
-- **Logging**: Use the standard `logging` module. Always include informative log messages for key operations (e.g., reading/writing data, API calls).
-- **Error Handling**: Use `try...except` blocks for operations that can fail (e.g., API requests, file I/O). Log exceptions with `exc_info=True`. Raise exceptions for unrecoverable errors.
-- **Type Hints**: Use type hints for all function signatures (`def my_function(param: str) -> int:`).
+- **Tables**: `fct_` (Fact), `dim_` (Dimension), `stg_` (Staging views), `int_` (Intermediate tables), `mart_` (Reporting marts).
+- **Files**: `snake_case.py`, `snake_case.sql`.
+- **Variables/Columns**: `snake_case` for all Python/SQL variables and DataFrame columns.
+</naming_conventions>
 
-### 4.2. PySpark
+<style_guides>
 
-- **Session Creation**: Use a dedicated `get_spark_session()` function. Configure `spark.sql.adaptive.enabled` and GCS connector settings.
-- **Partitioning**: Repartition data before writing to GCS (`.repartition("partition_key")`) to control output file sizes.
-- **Column Naming**: Use `snake_case` for all DataFrame columns created.
-- **Immutability**: Treat DataFrames as immutable. Create new DataFrames for each transformation step.
+- **Python**: PEP 8. Format with `black` and `isort`. Use type hints (`def func(param: str) -> int:`). Use `get_spark_session()` for PySpark.
+- **SQL**: Use explicit `AS` for aliases. Cross-dataset queries must use `project-id.dataset.table`. Format using `sqlfluff` (Keywords/Functions: UPPERCASE, Identifiers: lowercase).
+- **dbt**: Generate primary/surrogate keys using `MD5()` of natural key + business columns via `generate_surrogate_key()`. Use `scd2_merge()` for SCD-2 dimensions.
+</style_guides>
 
-### 4.3. SQL (BigQuery)
+<iam_roles>
 
-- **Style**: Use `sqlfluff` with the provided `.sqlfluff` config.
-    - Keywords: **UPPERCASE** (`SELECT`, `FROM`, `WHERE`).
-    - Identifiers (columns, tables): **lowercase** (`my_table`, `my_column`).
-    - Functions: **UPPERCASE** (`COUNT()`, `SUM()`).
-- **Aliasing**: Use explicit `AS` for all aliases (`table_name AS t`).
-- **BigQuery Specifics**:
-    - Always use `project-id.dataset.table` for cross-dataset queries.
-    - Use `PARTITION BY` and `CLUSTER BY` on large tables.
-    - Never use Legacy SQL. Always use `standard#`.
-
-### 4.4. dbt
-
-- **Macros**: Use `generate_surrogate_key()` for all primary keys. Use `scd2_merge()` for all SCD-2 dimension tables.
-- **Surrogate Keys**: Generate surrogate keys using `MD5()` of the natural key and relevant business columns.
-- **SCD-2**: For SCD-2 dimensions, always include `is_current` (BOOL), `effective_from` (DATE), and `effective_to` (DATE) columns.
-- **Config Block**: Every model must have a `{{ config(...) }}` block at the top, specifying `materialized`, `tags`, and `labels`.
-
----
-
-## 5. NAMING CONVENTIONS
-
-- **Table Prefixes**:
-    - `fct_`: Fact tables (e.g., `fct_flights`).
-    - `dim_`: Dimension tables (e.g., `dim_airports`).
-    - `stg_`: Staging models (views, e.g., `stg_bts_flights`).
-    - `int_`: Intermediate models (tables, e.g., `int_flights_enriched`).
-    - `mart_`: Reporting marts (e.g., `mart_delay_summary`).
-- **File Naming**:
-    - Python scripts: `snake_case.py` (e.g., `bronze_to_silver.py`).
-    - SQL files: `snake_case.sql` (e.g., `fct_flights.sql`).
-- **Variable Naming**: Use `snake_case` for all Python and SQL variables and columns.
-
----
-
-## 6. DATA CONTRACTS
-
-### 6.1. Delay Categories (`delay_category` column)
-
-- **SEVERE_DELAY**: `arr_delay_minutes > 60`
-- **MODERATE_DELAY**: `15 < arr_delay_minutes <= 60`
-- **MINOR_DELAY**: `0 < arr_delay_minutes <= 15`
-- **ON_TIME**: `arr_delay_minutes <= 0`
-- **CANCELLED**: `is_cancelled = TRUE`
-- **DIVERTED**: `is_diverted = TRUE`
-
-### 6.2. SCD-2 Fields (in `dim_*` tables)
-
-- **`is_current`**: `BOOL` - `TRUE` if this is the active record for the natural key.
-- **`effective_from`**: `DATE` - The date this version of the record became active.
-- **`effective_to`**: `DATE` - The date this version of the record expired (`NULL` for current records).
-- **`row_hash`**: `STRING` - `MD5` of business attribute columns to detect changes.
-
-### 6.3. BigQuery Partitioning & Clustering
-
-- **`fact_flights`**: `PARTITION BY flight_date`, `CLUSTER BY carrier_code, origin_airport`.
-- **`mart_delay_summary`**: `PARTITION BY summary_date`, `CLUSTER BY carrier_code`.
-
----
-
-## 7. GEMINI AGENT INSTRUCTIONS
-
-- **Fixed Values**:
-    - Always use `PROJECT_ID="flights-analytics-prod"`.
-    - Always use `REGION="europe-west2"`.
-- **Code Generation**:
-    - **Never** use placeholder comments like `# TODO` or `...`. Implement the logic completely.
-    - **Always** include logging in all Python files (`cloud_functions/` and `spark_jobs/`).
-    - **Always** write BigQuery Standard SQL. Never use Legacy SQL.
-    - **Always** add appropriate `try...except` error handling in Python for I/O and API calls.
-- **dbt Models**:
-    - All dbt models **must** include a `config()` block at the top.
-    - The `config()` block **must** specify `materialized`, `tags`, and `labels`.
-
----
-
-## 8. FILE STRUCTURE REFERENCE
-
-```
-flights-analytics/
-├── .github/
-│   └── workflows/
-│       ├── pr_checks.yml
-│       └── deploy_prod.yml
-├── .sqlfluff
-├── cloud_functions/
-│   ├── ingest_bts_csv/
-│   │   ├── main.py
-│   │   └── requirements.txt
-│   └── ingest_opensky/
-│       ├── main.py
-│       └── requirements.txt
-├── spark_jobs/
-│   ├── bronze_to_silver.py
-│   └── silver_to_gold.py
-├── dataplex/
-│   └── dq_rules/
-│       └── silver_flights_dq.yaml
-├── bigquery/
-│   ├── ddl/
-│   │   ├── create_tables.sql
-│   │   └── create_views.sql
-│   ├── stored_procs/
-│   │   ├── sp_scd2_merge_airports.sql
-│   │   ├── sp_scd2_merge_carriers.sql
-│   │   └── sp_daily_monitor.sql
-│   └── remote_models/
-│       └── gemini_monitor_model.sql
-├── dbt/
-│   ├── dbt_project.yml
-│   ├── models/
-│   │   ├── staging/
-│   │   ├── intermediate/
-│   │   └── marts/
-│   ├── macros/
-│   └── tests/
-├── dags/
-│   └── flights_daily_pipeline.py
-├── tests/
-│   └── unit/
-└── vertex_ai/
-    └── gemini_experimental.py
-```
+- **Pipeline Runner SA** (`flights-pipeline-sa@...`): `bigquery.dataEditor`, `bigquery.jobUser`, `storage.objectAdmin`, `dataproc.editor`, `dataplex.editor`, `aiplatform.user`, `composer.worker`, `cloudfunctions.invoker`.
+- **Dataproc SA** (`flights-dataproc-sa@...`): `bigquery.dataEditor`, `bigquery.jobUser`, `storage.objectAdmin`, `dataproc.worker`.
+- **CI/CD SA** (`flights-cicd-sa@...`): `bigquery.dataEditor`, `bigquery.jobUser`, `storage.objectAdmin`, `dataproc.editor`, `cloudfunctions.developer`, `iam.serviceAccountTokenCreator`.
+</iam_roles>

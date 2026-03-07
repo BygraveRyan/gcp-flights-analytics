@@ -20,8 +20,8 @@ fn-ingest-bts-csv:
   trigger:     HTTP (no-allow-unauthenticated)
   runtime:     python312
 
-fn-ingest-opensky:
-  entry_point: ingest_opensky
+fn-ingest-fr24:
+  entry_point: ingest_fr24
   timeout:     120s
   memory:      256Mi
   trigger:     HTTP (no-allow-unauthenticated)
@@ -98,7 +98,7 @@ Bronze paths must always follow this pattern:
 
 ```
 bts/{year}/{month:02d}/raw_{YYYYMMDD}.zip
-opensky/{year}/{month:02d}/{day:02d}/states_{YYYYMMDD_HHMMSS}.ndjson
+fr24/{year}/{month:02d}/{day:02d}/positions_{YYYYMMDD_HHMMSS}.ndjson
 ```
 
 Always derive dates from datetime.now(timezone.utc) — never system local time.
@@ -125,7 +125,7 @@ Success response must always include:
     "month":         int
 }
 
-# OpenSky function
+# FR24 function
 {
     "status":           "success",
     "gcs_path":         "gs://bucket/path/to/file",
@@ -165,34 +165,23 @@ requests==2.32.3
 https://transtats.bts.gov/PREZIP/On_Time_Reporting_Carrier_On_Time_Performance_1987_present_{year}_{month}.zip
 ```
 
-### OpenSky API
+### FR24 API
 
 - Always use requests.get() with timeout=60
 - Bounding box covers UK + NW Europe:
 
 ```
-lamin=49.0, lomin=-8.5, lamax=61.5, lomax=10.5
+61.5,49.0,-8.5,10.5
 ```
 
 - Full URL:
 
 ```
-https://opensky-network.org/api/states/all?lamin=49.0&lomin=-8.5&lamax=61.5&lomax=10.5
+https://fr24api.flightradar24.com/api/live/flight-positions/full
 ```
 
-- Response states array maps to OPENSKY_COLUMNS in this exact order:
-
-```python
-OPENSKY_COLUMNS = [
-    "icao24", "callsign", "origin_country", "time_position",
-    "last_contact", "longitude", "latitude", "baro_altitude",
-    "on_ground", "velocity", "true_track", "vertical_rate",
-    "sensors", "geo_altitude", "squawk", "spi",
-    "position_source", "category"
-]
-```
-
-- Always handle empty states array gracefully — return 200 with rows_written=0
+- Response `data` array contains raw flight position objects.
+- Always handle empty data array gracefully — return 200 with rows_written=0
 
 ## WHAT NOT TO DO
 

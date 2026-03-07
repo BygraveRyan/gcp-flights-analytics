@@ -17,7 +17,7 @@ To design and build a complete batch data pipeline from scratch — covering ing
 ```
 BTS API (CSV)  ──┐
                  ├──► Cloud Functions (Gen2) ──► GCS Bronze
-OpenSky API ─────┘                                    │
+FR24 API ────────┘                                    │
                                                        ▼
                                             PySpark (Dataproc Serverless)
                                             Bronze ──► Silver ──► Gold
@@ -68,8 +68,8 @@ OpenSky API ─────┘                                    │
 | Phase | Description | Status |
 |-------|-------------|--------|
 | 1 | GCP Foundation — buckets, datasets, service accounts, Dataplex | ✅ Complete |
-| 2 | Cloud Functions Gen2 — BTS CSV & OpenSky API ingestion | 🔄 In Progress |
-| 3 | PySpark Bronze → Silver | ⬜ Not Started |
+| 2 | Cloud Functions Gen2 — BTS CSV & FlightRadar24 API ingestion | ✅ Complete |
+| 3 | PySpark Bronze → Silver | 🔄 In Progress |
 | 4 | PySpark Silver → Gold | ⬜ Not Started |
 | 5 | BigQuery DDL — partitioned tables, external tables | ⬜ Not Started |
 | 6 | SCD Type 2 MERGE stored procedures | ⬜ Not Started |
@@ -84,7 +84,7 @@ OpenSky API ─────┘                                    │
 ## 📊 Data Sources
 
 - **[BTS On-Time Performance](https://www.transtats.bts.gov/)** — Monthly US domestic flight performance data (CSV via HTTP)
-- **[OpenSky Network](https://opensky-network.org/)** — Live European airspace state vectors via REST API
+- **[FlightRadar24 API v1](https://fr24api.flightradar24.com/)** — Live European airspace flight positions via REST API (Explorer plan)
 
 ---
 
@@ -99,7 +99,7 @@ gcp-flights-analytics/
 │       └── pr_checks.yml
 ├── cloud_functions/
 │   ├── ingest_bts_csv/
-│   └── ingest_opensky/
+│   └── ingest_fr24/
 ├── spark_jobs/
 │   ├── bronze_to_silver.py
 │   └── silver_to_gold.py
@@ -129,11 +129,13 @@ gcp-flights-analytics/
 **Region:** `europe-west2`
 
 **Service Accounts:**
+
 - `flights-pipeline-sa` — Pipeline runner (functions, Spark, BQ)
 - `flights-dataproc-sa` — Dataproc Serverless worker
 - `flights-cicd-sa` — GitHub Actions deployments
 
 **BigQuery Datasets:**
+
 - `flights_raw` — External tables over GCS Silver
 - `flights_staging` — dbt staging views
 - `flights_dw` — SCD-2 dimensions and fact tables
