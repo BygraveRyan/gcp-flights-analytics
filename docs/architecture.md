@@ -893,7 +893,7 @@ rowFilter: "flight_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 2 DAY)"
 ```bash
 gcloud dataplex datascans create data-quality silver-flights-dq \
   --location=europe-west2 \
-  --data-source-resource="//storage.googleapis.com/projects/flights-analytics-prod/buckets/flights-silver-flights-analytics-prod" \
+  --data-source-resource="//bigquery.googleapis.com/projects/flights-analytics-prod/datasets/flights_raw/tables/ext_silver_bts" \
   --data-quality-spec-file=dataplex/dq_rules/silver_flights_dq.yaml \
   --display-name="Silver BTS Flights DQ Scan" \
   --project=flights-analytics-prod

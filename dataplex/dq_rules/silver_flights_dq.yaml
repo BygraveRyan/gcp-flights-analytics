@@ -1,5 +1,5 @@
 # Dataplex Data Quality Task — Silver BTS Flights
-# Apply to: gs://flights-silver-flights-analytics-prod/bts/
+# Apply to: flights-analytics-prod.flights_raw.ext_silver_bts
 ---
 rules:
   - nonNullExpectation: {}
