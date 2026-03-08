@@ -36,6 +36,7 @@ The Agent MUST adhere to these absolute negative constraints at all times:
 
 ### 3. Git & Commits
 
+- **MANDATORY**: Always ask for explicit confirmation from the User before performing any action that modifies the codebase, stages changes, commits, or pushes to GitHub. Only propose changes/actions and wait for a "yes" or "no".
 - Commit Message Format: `type(scope): description`
 - Valid Types: `feat`, `fix`, `docs`, `refactor`, `chore`, `test`
 - Valid Scopes: `cloud-functions`, `spark`, `bigquery`, `dbt`, `composer`, `dataplex`, `cicd`, `infra`, `architecture`

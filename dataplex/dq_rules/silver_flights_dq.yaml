@@ -89,4 +89,4 @@ rules:
     threshold: 1.0
 
 samplingPercent: 100.0
-rowFilter: "flight_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 2 DAY)"
+

@@ -278,3 +278,33 @@ gcloud dataplex datascans create data-quality silver-flights-dq \
 **Lesson:** Dataplex DQ is tightly coupled with the BigQuery storage engine for execution. Always wrap GCS data in an external table if you need to run DQ scans against it. Note that `ext_silver_bts` is now already created for Phase 5; do not recreate it.
 
 ---
+
+#### Issue: Dataplex DQ scan creation fails on empty external table
+
+**Date:** March 2026
+**Symptoms:** `gcloud dataplex datascans create data-quality` failed with an error indicating it "matched no files" when targeting the BigQuery external table `flights_raw.ext_silver_bts`.
+
+**Diagnosis steps:**
+1. Dataplex performs an eager validation query against the target BigQuery external table at scan creation time to verify the schema and connectivity.
+2. The `ext_silver_bts` table points to `gs://flights-silver-flights-analytics-prod/bts/*.parquet`.
+3. Since the Silver GCS bucket was empty (no Spark jobs had run yet), the external table could not resolve any files, causing the validation query to fail and blocking the scan creation.
+
+**Resolution:**
+Uploaded a zero-row "seed" Parquet file containing the correct BTS Silver schema to the Silver bucket. This satisfies Dataplex's eager validation without affecting query results or DQ statistics.
+
+```bash
+# Upload zero-row seed file to satisfy Dataplex validation
+# (File: gs://flights-silver-flights-analytics-prod/bts/seed.parquet)
+
+# Create the DQ scan (now succeeds as validation query finds the seed file)
+gcloud dataplex datascans create data-quality silver-flights-dq \
+  --location=europe-west2 \
+  --data-source-resource="//bigquery.googleapis.com/projects/flights-analytics-prod/datasets/flights_raw/tables/ext_silver_bts" \
+  --data-quality-spec-file=dataplex/dq_rules/silver_flights_dq.yaml \
+  --display-name="Silver BTS Flights DQ Scan" \
+  --project=flights-analytics-prod
+```
+
+**Lesson:** Dataplex DQ scans require the target data source to be queryable at the moment of creation. For BigQuery external tables pointing to GCS, at least one file matching the schema must exist in the URI path. A zero-row seed Parquet file is a robust way to enable "infrastructure-first" deployments before the first ingestion/transformation job runs.
+
+---
