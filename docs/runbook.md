@@ -217,3 +217,64 @@ gcloud secrets delete opensky-client-secret --project=flights-analytics-prod
 ---
 
 *Phases 3–11 infrastructure notes will be added as each phase is completed.*
+---
+
+## Phase 3 — PySpark Bronze→Silver + Dataplex DQ
+
+### 3.1 Troubleshooting Log
+
+#### Issue: Dataplex Data Quality YAML syntax mismatch
+
+**Date:** March 2026
+**Symptoms:** `gcloud dataplex datascans create data-quality` command failed with a Protobuf parsing error: `Failed to parse value(s) in protobuf [GoogleCloudDataplexV1DataQualitySpec]: ... customSqlExpectation`
+
+**Diagnosis steps:**
+
+1.  The initial `silver_flights_dq.yaml` was created based on the `architecture.md` documentation, which used `rule_type: CUSTOM_SQL_EXPR` and a `sql_expression` that was a boolean statement.
+2.  The `gcloud` error indicated a problem with `customSqlExpectation`, suggesting the format was incorrect.
+3.  The user provided a corrected snippet using `rowConditionExpectation` and a row-level boolean `sqlExpression`. This implies that for row-level custom checks, `rowConditionExpectation` is the correct directive.
+
+**Resolution:**
+
+The `dataplex/dq_rules/silver_flights_dq.yaml` file was updated to use `rowConditionExpectation` for custom SQL checks. The `sqlExpression` was changed to a boolean expression that evaluates per row. The `architecture.md` file was also updated to reflect the correct syntax.
+
+**Lesson:**
+
+The `gcloud` CLI for Dataplex Data Quality scans has a specific YAML structure that may not be perfectly reflected in older documentation. The error message from `gcloud` can be misleading. When a Protobuf parsing error occurs, it's a strong indicator of a syntax mismatch between the YAML file and the API's expectations. The best course of action is to consult the latest official documentation or experiment with the format (`tableCondition` vs `rowCondition`) to find the working syntax. In this case, the fix was to use a row-level condition (`rowConditionExpectation`) instead of a table-level aggregate condition.
+
+---
+
+#### Issue: Dataplex Auto DQ requires BigQuery table, not GCS
+
+**Date:** March 2026
+**Symptoms:** `gcloud dataplex datascans create data-quality` failed when `--data-source-resource` pointed to a GCS bucket URI.
+
+**Diagnosis:** Dataplex Auto Data Quality scans for "curated" zones or external data only support BigQuery tables (including external tables) as the data source resource. It cannot scan raw GCS buckets directly.
+
+**Resolution:**
+1. Created the `ext_silver_bts` BigQuery external table pointing to the Silver GCS bucket.
+2. Updated the DQ scan to target the BQ table resource.
+
+```bash
+# 1. Create external table (pulled forward from Phase 5)
+bq query --use_legacy_sql=false "
+CREATE EXTERNAL TABLE IF NOT EXISTS \`flights-analytics-prod.flights_raw.ext_silver_bts\`
+WITH PARTITION COLUMNS (flight_date DATE)
+OPTIONS (
+  format = 'PARQUET',
+  uris = ['gs://flights-silver-flights-analytics-prod/bts/*.parquet'],
+  hive_partition_uri_prefix = 'gs://flights-silver-flights-analytics-prod/bts'
+);"
+
+# 2. Create DQ scan targeting the BQ table
+gcloud dataplex datascans create data-quality silver-flights-dq \
+  --location=europe-west2 \
+  --data-source-resource=\"//bigquery.googleapis.com/projects/flights-analytics-prod/datasets/flights_raw/tables/ext_silver_bts\" \
+  --data-quality-spec-file=dataplex/dq_rules/silver_flights_dq.yaml \
+  --display-name=\"Silver BTS Flights DQ Scan\" \
+  --project=flights-analytics-prod
+```
+
+**Lesson:** Dataplex DQ is tightly coupled with the BigQuery storage engine for execution. Always wrap GCS data in an external table if you need to run DQ scans against it. Note that `ext_silver_bts` is now already created for Phase 5; do not recreate it.
+
+---
