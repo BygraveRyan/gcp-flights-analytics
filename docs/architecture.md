@@ -799,84 +799,94 @@ if __name__ == "__main__":
 # Apply to: gs://flights-silver-flights-analytics-prod/bts/
 ---
 rules:
-  - rule_type: NOT_NULL
+  - nonNullExpectation: {}
     column: flight_date
     dimension: COMPLETENESS
+    threshold: 1.0
     description: "flight_date must not be null"
 
-  - rule_type: NOT_NULL
+  - nonNullExpectation: {}
     column: carrier_code
     dimension: COMPLETENESS
+    threshold: 1.0
     description: "carrier_code must not be null"
 
-  - rule_type: NOT_NULL
+  - nonNullExpectation: {}
     column: origin_airport
     dimension: COMPLETENESS
+    threshold: 1.0
     description: "origin_airport must not be null"
 
-  - rule_type: NOT_NULL
+  - nonNullExpectation: {}
     column: dest_airport
     dimension: COMPLETENESS
+    threshold: 1.0
     description: "dest_airport must not be null"
 
-  - rule_type: RANGE
+  - rangeExpectation:
+      minValue: "-60.0"
+      maxValue: "1440.0"
     column: dep_delay_minutes
     dimension: VALIDITY
-    min_value: -60.0
-    max_value: 1440.0
-    ignore_null: true
+    threshold: 0.99
+    ignoreNull: true
     description: "Departure delay must be between -60 and 1440 minutes"
 
-  - rule_type: RANGE
+  - rangeExpectation:
+      minValue: "-120.0"
+      maxValue: "1440.0"
     column: arr_delay_minutes
     dimension: VALIDITY
-    min_value: -120.0
-    max_value: 1440.0
-    ignore_null: true
+    threshold: 0.99
+    ignoreNull: true
     description: "Arrival delay must be between -120 and 1440 minutes"
 
-  - rule_type: RANGE
+  - rangeExpectation:
+      minValue: "1.0"
+      maxValue: "12000.0"
     column: distance_miles
     dimension: VALIDITY
-    min_value: 1.0
-    max_value: 12000.0
-    ignore_null: true
+    threshold: 0.99
+    ignoreNull: true
     description: "Flight distance must be between 1 and 12000 miles"
 
-  - rule_type: REGEX
+  - regexExpectation:
+      regex: "^[A-Z0-9]{2}$"
     column: carrier_code
     dimension: VALIDITY
-    regex: "^[A-Z0-9]{2}$"
+    threshold: 0.99
     description: "Carrier code must be 2-char alphanumeric uppercase"
 
-  - rule_type: REGEX
+  - regexExpectation:
+      regex: "^[A-Z]{3}$"
     column: origin_airport
     dimension: VALIDITY
-    regex: "^[A-Z]{3}$"
+    threshold: 0.99
     description: "Origin airport must be 3-char IATA code"
 
-  - rule_type: REGEX
+  - regexExpectation:
+      regex: "^[A-Z]{3}$"
     column: dest_airport
     dimension: VALIDITY
-    regex: "^[A-Z]{3}$"
+    threshold: 0.99
     description: "Destination airport must be 3-char IATA code"
 
-  - rule_type: CUSTOM_SQL_EXPR
+  - rowConditionExpectation:
+      sqlExpression: "NOT (is_cancelled = TRUE AND cancellation_code IS NULL)"
+    column: cancellation_code
     dimension: CONSISTENCY
-    sql_expression: >
-      COUNTIF(is_cancelled = TRUE AND cancellation_code IS NULL) = 0
     description: "Cancelled flights must have a cancellation code"
+    threshold: 1.0
 
-  - rule_type: CUSTOM_SQL_EXPR
+  - rowConditionExpectation:
+      sqlExpression: "NOT (is_cancelled = FALSE AND is_diverted = FALSE AND arr_delay_minutes IS NULL AND air_time_minutes IS NOT NULL)"
+    column: arr_delay_minutes
     dimension: CONSISTENCY
-    sql_expression: >
-      COUNTIF(is_cancelled = FALSE AND is_diverted = FALSE
-              AND arr_delay_minutes IS NULL
-              AND air_time_minutes IS NOT NULL) = 0
     description: "Non-cancelled, non-diverted flights must have arrival delay"
+    threshold: 1.0
 
-sampling_percent: 100.0
-row_filter: "flight_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 2 DAY)"
+samplingPercent: 100.0
+rowFilter: "flight_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 2 DAY)"
 ```
 
 **Create Dataplex DQ Task:**
