@@ -1,6 +1,6 @@
 """
 Dataproc Serverless PySpark Job: Bronze → Silver transformation.
-- Reads raw BTS CSV ZIP and OpenSky NDJSON from GCS Bronze
+- Reads raw BTS CSV ZIP and FR24 NDJSON from GCS Bronze
 - Enforces schema, deduplicates, casts types
 - Writes Parquet to GCS Silver partitioned by flight_date
 Python 3.12 / PySpark 3.5
@@ -19,9 +19,14 @@ from pyspark.sql.types import (BooleanType, DateType, DoubleType, IntegerType,
 logging.basicConfig(level=logging.INFO, stream=sys.stdout)
 logger = logging.getLogger(__name__)
 
+# Default Constants
 PROJECT_ID = "flights-analytics-prod"
-BRONZE_BUCKET = f"gs://flights-bronze-{PROJECT_ID}"
-SILVER_BUCKET = f"gs://flights-silver-{PROJECT_ID}"
+DEFAULT_BRONZE_BUCKET = f"gs://flights-bronze-{PROJECT_ID}"
+DEFAULT_SILVER_BUCKET = f"gs://flights-silver-{PROJECT_ID}"
+
+# Unit conversion constants
+_FT_TO_M = 0.3048
+_KT_TO_MS = 0.514444
 
 BTS_SCHEMA = StructType(
     [
@@ -80,11 +85,11 @@ def get_spark_session() -> SparkSession:
     )
 
 
-def process_bts_bronze(spark: SparkSession, run_date: str) -> int:
+def process_bts_bronze(spark: SparkSession, run_date: str, bronze_bucket: str, silver_bucket: str) -> int:
     """Read BTS CSV from Bronze, enforce schema, deduplicate, write Silver Parquet."""
     year = run_date[:4]
     month = run_date[4:6]
-    bronze_path = f"{BRONZE_BUCKET}/bts/{year}/{month}/*.zip"
+    bronze_path = f"{bronze_bucket}/bts/{year}/{month}/*.zip"
 
     logger.info(f"Reading BTS bronze from: {bronze_path}")
     raw_df = (
@@ -152,7 +157,7 @@ def process_bts_bronze(spark: SparkSession, run_date: str) -> int:
         )
     )
 
-    silver_path = f"{SILVER_BUCKET}/bts"
+    silver_path = f"{silver_bucket}/bts"
     logger.info(f"Writing BTS Silver Parquet to: {silver_path}")
     (
         silver_df.repartition(F.col("flight_date"))
@@ -166,26 +171,26 @@ def process_bts_bronze(spark: SparkSession, run_date: str) -> int:
     return row_count
 
 
-def process_opensky_bronze(spark: SparkSession, run_date: str) -> int:
-    """Read OpenSky NDJSON from Bronze, schema enforce, write Silver Parquet."""
+def process_fr24_bronze(spark: SparkSession, run_date: str, bronze_bucket: str, silver_bucket: str) -> int:
+    """Read FR24 NDJSON from Bronze, schema enforce, write Silver Parquet."""
     year = run_date[:4]
     month = run_date[4:6]
     day = run_date[6:8]
-    bronze_path = f"{BRONZE_BUCKET}/opensky/{year}/{month}/{day}/*.ndjson"
+    bronze_path = f"{bronze_bucket}/fr24/{year}/{month}/{day}/*.ndjson"
 
-    logger.info(f"Reading OpenSky bronze from: {bronze_path}")
+    logger.info(f"Reading FR24 bronze from: {bronze_path}")
     raw_df = spark.read.json(bronze_path)
 
     silver_df = (
         raw_df.withColumn("position_date", F.to_date(F.col("ingestion_timestamp")))
-        .withColumn("icao24", F.upper(F.trim(F.col("icao24"))))
+        .withColumn("icao24", F.upper(F.trim(F.col("hex"))))
         .withColumn("callsign", F.trim(F.col("callsign")))
-        .withColumn("latitude", F.col("latitude").cast(DoubleType()))
-        .withColumn("longitude", F.col("longitude").cast(DoubleType()))
-        .withColumn("baro_altitude_m", F.col("baro_altitude").cast(DoubleType()))
-        .withColumn("velocity_ms", F.col("velocity").cast(DoubleType()))
+        .withColumn("latitude", F.col("lat").cast(DoubleType()))
+        .withColumn("longitude", F.col("lon").cast(DoubleType()))
+        .withColumn("baro_altitude_m", (F.col("alt").cast(DoubleType()) * _FT_TO_M))
+        .withColumn("velocity_ms", (F.col("gspeed").cast(DoubleType()) * _KT_TO_MS))
         .withColumn("on_ground", F.col("on_ground").cast(BooleanType()))
-        .withColumn("vertical_rate_ms", F.col("vertical_rate").cast(DoubleType()))
+        .withColumn("vertical_rate_ms", F.col("vspeed").cast(DoubleType()))
         .withColumn(
             "ingestion_timestamp",
             F.col("ingestion_timestamp").cast(TimestampType()),
@@ -207,7 +212,7 @@ def process_opensky_bronze(spark: SparkSession, run_date: str) -> int:
         )
     )
 
-    silver_path = f"{SILVER_BUCKET}/opensky"
+    silver_path = f"{silver_bucket}/fr24"
     (
         silver_df.repartition(F.col("position_date"))
         .write.mode("overwrite")
@@ -216,24 +221,26 @@ def process_opensky_bronze(spark: SparkSession, run_date: str) -> int:
     )
 
     row_count = silver_df.count()
-    logger.info(f"OpenSky Silver: wrote {row_count:,} rows")
+    logger.info(f"FR24 Silver: wrote {row_count:,} rows")
     return row_count
 
 
 def main():
-    if len(sys.argv) < 2:
-        run_date = datetime.now(timezone.utc).strftime("%Y%m%d")
-    else:
-        run_date = sys.argv[1]
+    # python bronze_to_silver.py <run_date> <bronze_bucket> <silver_bucket>
+    run_date = sys.argv[1] if len(sys.argv) > 1 else datetime.now(timezone.utc).strftime("%Y%m%d")
+    bronze_bucket = sys.argv[2] if len(sys.argv) > 2 else DEFAULT_BRONZE_BUCKET
+    silver_bucket = sys.argv[3] if len(sys.argv) > 3 else DEFAULT_SILVER_BUCKET
 
     logger.info(f"Starting Bronze → Silver pipeline for run_date={run_date}")
+    logger.info(f"Using bronze_bucket={bronze_bucket}, silver_bucket={silver_bucket}")
+
     spark = get_spark_session()
 
     try:
-        bts_rows = process_bts_bronze(spark, run_date)
-        opensky_rows = process_opensky_bronze(spark, run_date)
+        bts_rows = process_bts_bronze(spark, run_date, bronze_bucket, silver_bucket)
+        fr24_rows = process_fr24_bronze(spark, run_date, bronze_bucket, silver_bucket)
         logger.info(
-            f"Bronze→Silver complete. BTS={bts_rows:,} rows, OpenSky={opensky_rows:,} rows"
+            f"Bronze→Silver complete. BTS={bts_rows:,} rows, FR24={fr24_rows:,} rows"
         )
     finally:
         spark.stop()
