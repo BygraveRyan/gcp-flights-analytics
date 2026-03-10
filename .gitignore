@@ -36,3 +36,4 @@ derby.log
 *.tfstate
 *.tfstate.backup
 .terraform/
+*.skill
