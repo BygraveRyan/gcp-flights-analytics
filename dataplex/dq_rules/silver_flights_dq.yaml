@@ -1,0 +1,92 @@
+# Dataplex Data Quality Task — Silver BTS Flights
+# Apply to: flights-analytics-prod.flights_raw.ext_silver_bts
+---
+rules:
+  - nonNullExpectation: {}
+    column: flight_date
+    dimension: COMPLETENESS
+    threshold: 1.0
+    description: "flight_date must not be null"
+
+  - nonNullExpectation: {}
+    column: carrier_code
+    dimension: COMPLETENESS
+    threshold: 1.0
+    description: "carrier_code must not be null"
+
+  - nonNullExpectation: {}
+    column: origin_airport
+    dimension: COMPLETENESS
+    threshold: 1.0
+    description: "origin_airport must not be null"
+
+  - nonNullExpectation: {}
+    column: dest_airport
+    dimension: COMPLETENESS
+    threshold: 1.0
+    description: "dest_airport must not be null"
+
+  - rangeExpectation:
+      minValue: "-60.0"
+      maxValue: "1440.0"
+    column: dep_delay_minutes
+    dimension: VALIDITY
+    threshold: 0.99
+    ignoreNull: true
+    description: "Departure delay must be between -60 and 1440 minutes"
+
+  - rangeExpectation:
+      minValue: "-120.0"
+      maxValue: "1440.0"
+    column: arr_delay_minutes
+    dimension: VALIDITY
+    threshold: 0.99
+    ignoreNull: true
+    description: "Arrival delay must be between -120 and 1440 minutes"
+
+  - rangeExpectation:
+      minValue: "1.0"
+      maxValue: "12000.0"
+    column: distance_miles
+    dimension: VALIDITY
+    threshold: 0.99
+    ignoreNull: true
+    description: "Flight distance must be between 1 and 12000 miles"
+
+  - regexExpectation:
+      regex: "^[A-Z0-9]{2}$"
+    column: carrier_code
+    dimension: VALIDITY
+    threshold: 0.99
+    description: "Carrier code must be 2-char alphanumeric uppercase"
+
+  - regexExpectation:
+      regex: "^[A-Z]{3}$"
+    column: origin_airport
+    dimension: VALIDITY
+    threshold: 0.99
+    description: "Origin airport must be 3-char IATA code"
+
+  - regexExpectation:
+      regex: "^[A-Z]{3}$"
+    column: dest_airport
+    dimension: VALIDITY
+    threshold: 0.99
+    description: "Destination airport must be 3-char IATA code"
+
+  - rowConditionExpectation:
+      sqlExpression: "NOT (is_cancelled = TRUE AND cancellation_code IS NULL)"
+    column: cancellation_code
+    dimension: CONSISTENCY
+    description: "Cancelled flights must have a cancellation code"
+    threshold: 1.0
+
+  - rowConditionExpectation:
+      sqlExpression: "NOT (is_cancelled = FALSE AND is_diverted = FALSE AND arr_delay_minutes IS NULL AND air_time_minutes IS NOT NULL)"
+    column: arr_delay_minutes
+    dimension: CONSISTENCY
+    description: "Non-cancelled, non-diverted flights must have arrival delay"
+    threshold: 1.0
+
+samplingPercent: 100.0
+
