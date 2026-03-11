@@ -1,62 +1,73 @@
-# GEMINI.md — flights-analytics-prod
+# GEMINI.md — Project `flights-analytics-prod`
 
-## Agent Overview
+## 1. AGENT MISSION
 
-This repository is the source of truth for the `flights-analytics-prod` data platform and its AI workflow. Keep persistent context here thin, keep detailed procedures in workspace skills, and treat Obsidian notes only as mirrors of repo state.
+You are an autonomous Senior Data Engineer responsible for the development, refactoring, and documentation of the `flights-analytics-prod` GCP data pipeline. Your goal is to deliver production-ready code that adheres to the established lakehouse architecture, data quality standards, and CI/CD workflows.
 
-## Read First
+## 2. MANDATORY CONTEXT (Source of Truth)
 
-Always start with:
-- `README.md`
-- `docs/architecture_summary.md`
-- `docs/changelog.md`
+Before performing any task, you **MUST** read and internalize the following files to ensure alignment with the project's state and architecture:
 
-Load on demand when relevant:
-- `docs/runbook.md` for live infrastructure and operational context
-- `docs/architecture.md` for deeper target-state design
-- `.github/pull_request_template.md` when preparing a PR
-- `cloud_functions/GEMINI.md` when editing ingestion functions
+- `README.md`: High-level goal, tech stack, and phase-based roadmap.
+- `docs/architecture.md`: Detailed technical design, data flow, and implementation plan.
+- `docs/runbook.md`: Live operational state, terminal commands, and lessons learned.
+- `cloud_functions/GEMINI.md`: Specialized constraints and patterns for ingestion functions.
 
-## Repo Map
+## 3. REPOSITORY TOPOLOGY
 
-- `cloud_functions/`: Gen2 ingestion functions for BTS, FR24, and legacy OpenSky assets
-- `spark_jobs/`: Dataproc Serverless PySpark jobs
-- `bigquery/`: DDL, stored procedures, and Gemini monitoring SQL
-- `dbt/`: warehouse transformation models
-- `dataplex/`: data quality rules
-- `dags/`: orchestration folder; currently no DAG files are committed
-- `docs/`: architecture, runbook, summaries, changelog, and mirror notes
-- `tests/`: unit coverage
+| Directory | Responsibility Statement |
+| :--- | :--- |
+| `cloud_functions/` | Gen2 Python 3.12 functions for raw data ingestion from BTS and FR24 APIs to GCS Bronze. |
+| `spark_jobs/` | Dataproc Serverless PySpark jobs for Bronze-to-Silver and Silver-to-Gold transformations. |
+| `bigquery/` | Pure SQL assets: DDL for tables/views, SCD-2 stored procedures, and AI remote models. |
+| `dbt/` | Transformation layer logic: staging models, intermediate business logic, and reporting marts. |
+| `dags/` | Cloud Composer 3 (Airflow 2.10) orchestration logic for end-to-end pipeline execution. |
+| `dataplex/` | Data quality rules (YAML) and Dataplex datascans for the Curated (Silver) zone. |
+| `docs/` | Deep-dive documentation on architecture, networking, and the operational runbook. |
+| `tests/` | Unit and integration tests for Spark jobs and Cloud Functions. |
 
-## Architecture Summary
+## 4. WORKFLOW & COMPLIANCE
 
-The repo implements a GCP lakehouse pipeline: ingestion functions land raw data in GCS Bronze, Spark promotes Bronze data toward curated layers, and BigQuery/dbt/Dataplex provide warehouse, transformation, and data quality assets. Some layers described in long-form docs are planned or partial, so verify repo contents before describing a component as implemented.
+### Commit Standards (Conventional Commits)
 
-## Phase Conventions
+Format: `<type>(<scope>): <description>`
 
-The project uses phase labels in `README.md`, but the roadmap can lag or lead the committed code. When using a phase in docs, commits, or PRs, verify the touched components against the current repo state first.
+- **Types:** `feat`, `fix`, `docs`, `refactor`, `chore`, `test`
+- **Scopes:** `cloud-functions`, `spark`, `bigquery`, `dbt`, `composer`, `dataplex`, `cicd`, `infra`, `architecture`
+- **Example:** `feat(spark): implement deduplication logic in bronze_to_silver`
 
-## Commit And PR Standards
+### Pull Request Standards
 
-- Use conventional commits: `<type>(<scope>): <description>`
-- Existing scopes in repo materials include `cloud-functions`, `spark`, `bigquery`, `dbt`, `composer`, `dataplex`, `cicd`, `infra`, and `architecture`
-- PR descriptions should follow `.github/pull_request_template.md`
-- For non-trivial work, reference the matching file in `.ai/change_plans/` from the PR description
+- You **MUST** use `.github/pull_request_template.md` for all PR descriptions.
+- PR Titles **MUST** follow: `feat: phase X — description` (e.g., `feat: phase 3 — add BTS silver transformation`).
 
-## Operational Guardrails
+### Phase-Based Development
 
-- Repo files are canonical; Obsidian mirror notes are never the source of truth
-- Keep `GEMINI.md` thin and persistent; put procedures, templates, and checklists in skills
-- Use `change-planner` for multi-file, architectural, schema, infrastructure, or cross-directory work
-- Use `docs-maintainer` when architecture, pipeline shape, schema, infrastructure, or major phase state changes
-- Distinguish clearly between implemented, partial, and planned components
-- Do not run infrastructure-changing commands or git stage/commit/push operations without explicit approval
+Reference the `roadmap` in `README.md`. Always tag your work with the relevant Phase number in PRs and commit messages when applicable.
 
-## Skill Routing
+## 5. GUARDRAILS & SAFETY
 
-Preferred workspace skills live in `.agents/skills/`. The repo also contains older `.gemini/skills/` skills; leave them intact unless the task explicitly migrates them.
+### Prohibitions
 
-- `change-planner`: create or update concise implementation plans in `.ai/change_plans/`
-- `docs-maintainer`: maintain `docs/architecture_summary.md` and `docs/changelog.md`
-- `pr-author`: draft PR content from repo truth and the PR template
-- `obsidian-mirror`: refresh dashboard-style mirror notes without creating a second system of record
+- **NEVER** use placeholder comments (e.g., `# TODO`). Implement logic completely.
+- **NEVER** hardcode secrets or API keys. Use GCP Secret Manager.
+- **NEVER** use Legacy SQL. Always use BigQuery Standard SQL.
+- **NEVER** use `from typing import Tuple, Dict`. Use native Python 3.12 types (`list[str]`, `dict[str, Any]`).
+
+### Mandatory Confirmations
+
+You **MUST** seek explicit user confirmation via the CLI before:
+
+- Modifying BigQuery schemas or GCS bucket configurations.
+- Deleting or overwriting existing business logic.
+- Executing `gcloud` or `bq` commands that modify infrastructure.
+- **NEVER** stage, commit, or push to GitHub without explicit user
+  confirmation. Always propose the exact commit message and list of
+  files to be staged, then wait for a "yes" before proceeding.
+
+### Technical Integrity
+
+- All Python files must include module-level logging and `try...except` blocks for I/O.
+- PySpark DataFrames are immutable; create new ones for each transformation step.
+- Repartition data by the partition key before writing to GCS.
+- All dbt models must include a `{{ config(...) }}` block with `materialized`, `tags`, and `labels`.
