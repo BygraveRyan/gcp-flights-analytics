@@ -106,7 +106,7 @@ FR24 API ────────┘                                    │
 | 1 | GCP Foundation — buckets, datasets, service accounts, Dataplex | ✅ Complete |
 | 2 | Cloud Functions Gen2 — BTS CSV & FlightRadar24 API ingestion | ✅ Complete |
 | 3 | PySpark Bronze → Silver | ✅ Complete |
-| 4 | PySpark Silver → Gold | 🔄 In Progress |
+| 4 | PySpark Silver → Gold | ✅ Complete |
 | 5 | BigQuery DDL — partitioned tables, external tables | ⬜ Not Started |
 | 6 | SCD Type 2 MERGE stored procedures | ⬜ Not Started |
 | 7 | dbt Project — staging, intermediate, marts | ⬜ Not Started |
