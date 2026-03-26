@@ -1,0 +1,70 @@
+config {
+  type: "operations",
+  schema: "flights_dw",
+  description: "SCD Type 2 MERGE into dim_airport. Pulls from bigquery-public-data.faa.us_airports and manages history.",
+  dependencies: []
+}
+
+-- Extract distinct airports from FAA public dataset
+WITH airports_source AS (
+  SELECT DISTINCT
+    code AS airport_code,
+    name AS airport_name,
+    city,
+    state_code,
+    country_code,
+    latitude,
+    longitude,
+    elevation_feet AS elevation_ft,
+    MD5(CONCAT(code, name, city, state_code)) AS row_hash
+  FROM
+    `bigquery-public-data.faa.airports`
+  WHERE
+    code IS NOT NULL
+)
+
+MERGE INTO `${self()}` target
+USING airports_source source
+ON
+  target.airport_code = source.airport_code
+  AND target.is_current = TRUE
+
+WHEN MATCHED AND target.row_hash != source.row_hash THEN
+  UPDATE SET
+    is_current = FALSE,
+    effective_to = DATE_SUB(CURRENT_DATE(), INTERVAL 1 DAY)
+
+WHEN MATCHED AND target.row_hash = source.row_hash THEN
+  -- No change needed
+  UPDATE SET
+    is_current = is_current
+
+WHEN NOT MATCHED THEN
+  INSERT (
+    airport_sk,
+    airport_code,
+    airport_name,
+    city,
+    state_code,
+    country_code,
+    latitude,
+    longitude,
+    elevation_ft,
+    is_current,
+    effective_from,
+    effective_to
+  )
+  VALUES (
+    MD5(CONCAT(source.airport_code, CAST(CURRENT_DATE() AS STRING))),
+    source.airport_code,
+    source.airport_name,
+    source.city,
+    source.state_code,
+    source.country_code,
+    source.latitude,
+    source.longitude,
+    source.elevation_ft,
+    TRUE,
+    CURRENT_DATE(),
+    NULL
+  );

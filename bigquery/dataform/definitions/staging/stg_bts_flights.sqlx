@@ -1,0 +1,27 @@
+config {
+  type: "view",
+  schema: "flights_dw",
+  description: "Staging view: BTS On-Time Performance flights with light type casting. No business logic."
+}
+
+SELECT
+  CAST(FlightDate AS DATE) AS flight_date,
+  CAST(CarrierCode AS STRING) AS carrier_code,
+  CAST(CarrierName AS STRING) AS carrier_name,
+  CAST(FlightNumber AS STRING) AS flight_number,
+  CAST(TailNumber AS STRING) AS tail_number,
+  CAST(OriginAirportCode AS STRING) AS origin_airport_code,
+  CAST(DestinationAirportCode AS STRING) AS dest_airport_code,
+  CAST(DepDelayMinutes AS FLOAT64) AS dep_delay_minutes,
+  CAST(ArrDelayMinutes AS FLOAT64) AS arr_delay_minutes,
+  CAST(DistanceMiles AS FLOAT64) AS distance_miles,
+  CAST(AirTimeMinutes AS FLOAT64) AS air_time_minutes,
+  CAST(IsCancelled AS BOOL) AS is_cancelled,
+  CAST(IsDiverted AS BOOL) AS is_diverted,
+  CAST(CancellationCode AS STRING) AS cancellation_code,
+  CAST(CarrierDelayMinutes AS FLOAT64) AS carrier_delay_minutes,
+  CAST(WeatherDelayMinutes AS FLOAT64) AS weather_delay_minutes,
+  CAST(NasDelayMinutes AS FLOAT64) AS nas_delay_minutes,
+  CAST(IngestionTimestamp AS TIMESTAMP) AS ingestion_timestamp
+FROM
+  `${var("source_project")}.${var("source_dataset")}.raw_bts_flights`

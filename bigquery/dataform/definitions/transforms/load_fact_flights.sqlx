@@ -1,0 +1,62 @@
+config {
+  type: "incremental",
+  schema: "flights_dw",
+  description: "Fact table: flight segments from BTS On-Time Performance, joined to dimensions. Partitioned by flight_date, clustered by carrier_code and origin_airport_code.",
+  partitionBy: ["flight_date"],
+  clusterBy: ["carrier_code", "origin_airport_code"],
+  dependencies: ["stg_bts_flights", "dim_carrier", "dim_airport"]
+}
+
+SELECT
+  MD5(CONCAT(
+    stg.flight_date,
+    stg.carrier_code,
+    stg.origin_airport_code,
+    stg.dest_airport_code,
+    stg.flight_number,
+    stg.tail_number
+  )) AS flight_sk,
+  dim_date.date_sk,
+  dim_carrier.carrier_sk,
+  dim_origin.airport_sk AS origin_airport_sk,
+  dim_dest.airport_sk AS dest_airport_sk,
+  stg.carrier_code,
+  stg.origin_airport_code,
+  stg.dest_airport_code,
+  stg.flight_number,
+  stg.tail_number,
+  stg.flight_date,
+  stg.dep_delay_minutes,
+  stg.arr_delay_minutes,
+  stg.distance_miles,
+  stg.air_time_minutes,
+  stg.is_cancelled,
+  stg.is_diverted,
+  stg.cancellation_code,
+  CASE
+    WHEN stg.arr_delay_minutes IS NULL THEN NULL
+    WHEN stg.arr_delay_minutes <= 15 THEN 'On Time'
+    WHEN stg.arr_delay_minutes <= 45 THEN 'Minor'
+    WHEN stg.arr_delay_minutes <= 120 THEN 'Moderate'
+    ELSE 'Severe'
+  END AS delay_category,
+  stg.carrier_delay_minutes,
+  stg.weather_delay_minutes,
+  stg.nas_delay_minutes,
+  stg.ingestion_timestamp
+FROM
+  ${ref("stg_bts_flights")} stg
+  LEFT JOIN ${ref("dim_date")} dim_date
+    ON FORMAT_DATE('%Y%m%d', stg.flight_date) = dim_date.date_sk
+  LEFT JOIN ${ref("dim_carrier")} dim_carrier
+    ON stg.carrier_code = dim_carrier.carrier_code
+    AND dim_carrier.is_current = TRUE
+  LEFT JOIN ${ref("dim_airport")} dim_origin
+    ON stg.origin_airport_code = dim_origin.airport_code
+    AND dim_origin.is_current = TRUE
+  LEFT JOIN ${ref("dim_airport")} dim_dest
+    ON stg.dest_airport_code = dim_dest.airport_code
+    AND dim_dest.is_current = TRUE
+${when(incremental(), `
+WHERE stg.flight_date > (SELECT MAX(flight_date) FROM ${self()})
+`)}

@@ -1,0 +1,35 @@
+config {
+  type: "incremental",
+  schema: "flights_dw",
+  description: "Fact table: FR24 live position records joined to dim_date. Partitioned by position_date, clustered by icao24.",
+  partitionBy: ["position_date"],
+  clusterBy: ["icao24"],
+  dependencies: ["stg_fr24_positions"]
+}
+
+SELECT
+  MD5(CONCAT(
+    stg.position_date,
+    stg.icao24,
+    CAST(stg.latitude AS STRING),
+    CAST(stg.longitude AS STRING),
+    CAST(stg.ingestion_timestamp AS STRING)
+  )) AS position_sk,
+  dim_date.date_sk,
+  stg.position_date,
+  stg.icao24,
+  stg.callsign,
+  stg.latitude,
+  stg.longitude,
+  stg.altitude_metres,
+  stg.velocity_ms,
+  stg.vertical_speed,
+  stg.on_ground,
+  stg.ingestion_timestamp
+FROM
+  ${ref("stg_fr24_positions")} stg
+  LEFT JOIN ${ref("dim_date")} dim_date
+    ON FORMAT_DATE('%Y%m%d', stg.position_date) = dim_date.date_sk
+${when(incremental(), `
+WHERE stg.position_date > (SELECT MAX(position_date) FROM ${self()})
+`)}
