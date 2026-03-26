@@ -1,41 +1,71 @@
-name: "Deploy to Production"
+name: Deploy to Production
 
 on:
   push:
     branches: [ main ]
-    paths:
-      - 'cloud_functions/**'
 
 jobs:
   deploy-functions:
+    name: Deploy Cloud Functions
     runs-on: ubuntu-latest
     permissions:
-      contents: 'read'
-      id-token: 'write'
+      contents: read
+      id-token: write  # Required for Workload Identity Federation
 
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Auth to GCP
-        uses: 'google-github-actions/auth@v2'
+      - name: Authenticate to GCP via Workload Identity Federation
+        uses: google-github-actions/auth@v2
         with:
-          # Use the Workload Identity Provider for best practice in 2026
-          # Or the secret key if you haven't set up WIF yet
-          credentials_json: '${{ secrets.GCP_SA_KEY }}'
+          # TODO: Create a Workload Identity Pool and Provider in GCP IAM.
+          # Value format: projects/<PROJECT_NUMBER>/locations/global/workloadIdentityPools/<POOL_ID>/providers/<PROVIDER_ID>
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
+          # TODO: Grant this service account the roles/iam.workloadIdentityUser binding
+          # linked to the Workload Identity Provider above.
+          # Value format: <SA_NAME>@<PROJECT_ID>.iam.gserviceaccount.com
+          service_account: ${{ secrets.WIF_SERVICE_ACCOUNT }}
 
       - name: Set up Cloud SDK
-        uses: 'google-github-actions/setup-gcloud@v2'
+        uses: google-github-actions/setup-gcloud@v2
         with:
-          project_id: 'flights-analytics-prod'
+          project_id: flights-analytics-prod
 
-      - name: Deploy OpenSky Ingestion
+      - name: Deploy fn-ingest-bts-csv
         run: |
-          gcloud functions deploy fn-ingest-opensky \
+          gcloud functions deploy fn-ingest-bts-csv \
             --gen2 \
             --runtime=python312 \
             --region=europe-west2 \
-            --source=cloud_functions/ingest_opensky \
-            --entry-point=ingest_opensky \
+            --source=cloud_functions/ingest_bts_csv \
+            --entry-point=ingest_bts_csv \
             --trigger-http \
-            --service-account=flights-pipeline-sa@flights-analytics-prod.iam.gserviceaccount.com
+            --no-allow-unauthenticated \
+            --service-account=flights-pipeline-sa@flights-analytics-prod.iam.gserviceaccount.com \
+            --set-env-vars GCP_PROJECT=flights-analytics-prod
+
+      - name: Deploy fn-ingest-fr24
+        run: |
+          gcloud functions deploy fn-ingest-fr24 \
+            --gen2 \
+            --runtime=python312 \
+            --region=europe-west2 \
+            --source=cloud_functions/ingest_fr24 \
+            --entry-point=ingest_fr24 \
+            --trigger-http \
+            --no-allow-unauthenticated \
+            --service-account=flights-pipeline-sa@flights-analytics-prod.iam.gserviceaccount.com \
+            --set-env-vars GCP_PROJECT=flights-analytics-prod
+
+      - name: Deploy fn-gemini-monitor
+        run: |
+          gcloud functions deploy fn-gemini-monitor \
+            --gen2 \
+            --runtime=python312 \
+            --region=europe-west2 \
+            --source=cloud_functions/gemini_monitor \
+            --entry-point=run_gemini_monitor \
+            --trigger-http \
+            --no-allow-unauthenticated \
+            --service-account=flights-pipeline-sa@flights-analytics-prod.iam.gserviceaccount.com \
+            --set-env-vars GCP_PROJECT=flights-analytics-prod
