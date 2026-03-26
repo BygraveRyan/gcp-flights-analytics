@@ -1,5 +1,6 @@
 # Credentials — NEVER commit
 *.json
+!bigquery/dataform/dataform.json
 *sa-key*
 .env
 *.env

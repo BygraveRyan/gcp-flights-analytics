@@ -1,0 +1,10 @@
+{
+  "projectId": "flights-analytics-prod",
+  "datasetId": "flights_dw",
+  "location": "europe-west2",
+  "assertionSchema": "flights_dw_assertions",
+  "vars": {
+    "source_project": "flights-analytics-prod",
+    "source_dataset": "flights_staging"
+  }
+}
