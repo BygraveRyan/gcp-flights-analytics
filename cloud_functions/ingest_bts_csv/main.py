@@ -1,101 +1,162 @@
 import functions_framework
-import logging
+import io
 import json
+import logging
+import zipfile
+import csv
 import requests
 from datetime import datetime, timezone
+from google.cloud import bigquery
 from google.cloud import storage
-from typing import Tuple, Dict, Any
 
 # --- Project Constants ---
-# Per GEMINI.md and cloud_functions/GEMINI.md, these are hardcoded.
 PROJECT_ID = "flights-analytics-prod"
 BRONZE_BUCKET = "flights-bronze-flights-analytics-prod"
 REGION = "europe-west2"
 
 # --- Logging Configuration ---
-# Per cloud_functions/GEMINI.md, configured at module level.
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# --- OpenSky API Constants ---
-# Per cloud_functions/GEMINI.md
-OPENSKY_URL = "https://opensky-network.org/api/states/all?lamin=49.0&lomin=-8.5&lamax=61.5&lomax=10.5"
-OPENSKY_COLUMNS = [
-    "icao24", "callsign", "origin_country", "time_position",
-    "last_contact", "longitude", "latitude", "baro_altitude",
-    "on_ground", "velocity", "true_track", "vertical_rate",
-    "sensors", "geo_altitude", "squawk", "spi",
-    "position_source", "category"
-]
+# --- BTS API Constants ---
+BTS_URL = (
+    "https://transtats.bts.gov/PREZIP/"
+    "On_Time_Reporting_Carrier_On_Time_Performance_(1987_present)_{year}_{month}.zip"
+)
+BTS_STAGING_TABLE = "flights-analytics-prod.flights_staging.raw_bts_flights"
+BTS_IDEMPOTENCY_VIEW = "flights-analytics-prod.flights_dw.stg_bts_flights"
 
 
 @functions_framework.http
-def ingest_opensky(request: functions_framework.Request) -> Tuple[Dict[str, Any], int]:
+def ingest_bts_csv(request: requests.Request) -> tuple[dict, int]:
     """
-    HTTP-triggered Cloud Function to ingest live flight data from OpenSky Network.
+    HTTP-triggered Cloud Function to ingest BTS On-Time Performance CSV data.
 
-    This function fetches current flight state vectors, converts them to NDJSON,
-    and uploads the result to the GCS Bronze bucket.
+    Accepts year and month as query parameters or JSON body fields.
+    Performs an idempotency check before downloading: if data for the requested
+    year/month already exists in stg_bts_flights, returns early.
 
     Args:
-        request: The Flask request object. The request body is not used.
+        request: The Flask request object.
 
     Returns:
-        A tuple containing a JSON response dictionary and an HTTP status code.
+        Tuple of (JSON response dict, HTTP status code).
     """
-    logger.info("Received request for OpenSky data ingestion.")
-
+    # --- Parse year / month from request ---
+    params = request.get_json(silent=True) or request.args
     try:
-        # 1. Get current timestamp for paths and records
-        now_utc = datetime.now(timezone.utc)
-        fetch_timestamp_iso = now_utc.isoformat()
+        year = int(params.get("year", datetime.now(timezone.utc).year))
+        month = int(params.get("month", datetime.now(timezone.utc).month))
+    except (TypeError, ValueError) as e:
+        return {"status": "error", "message": f"Invalid year/month: {e}"}, 400
 
-        # 2. Fetch data from OpenSky Network API
-        logger.info(f"Fetching data from OpenSky Network API: {OPENSKY_URL}")
-        with requests.get(OPENSKY_URL, timeout=60) as response:
-            response.raise_for_status()
-            api_response = response.json()
+    logger.info(f"Starting BTS ingestion for {year}-{month:02d}.")
 
-        # 3. Process the state vectors into NDJSON
-        states = api_response.get("states")
-        rows_written = 0
-        gcs_path = None
+    bq_client = bigquery.Client(project=PROJECT_ID)
 
-        if states:
-            # Convert list of lists to list of dicts
-            records = [dict(zip(OPENSKY_COLUMNS, state)) for state in states]
-            ndjson_content = "\n".join(json.dumps(record) for record in records)
-            rows_written = len(records)
+    # --- Idempotency check ---
+    existing_rows = _check_existing_rows(bq_client, year, month)
+    if existing_rows > 0:
+        logger.info(f"Data for {year}-{month:02d} already loaded ({existing_rows} rows). Skipping.")
+        return {"status": "already_loaded", "rows": existing_rows}, 200
 
-            # 4. Construct GCS destination path
-            blob_name = (
-                f"opensky/{now_utc.year}/{now_utc.month:02d}/{now_utc.day:02d}/"
-                f"states_{now_utc.strftime('%Y%m%d_%H%M%S')}.ndjson"
-            )
-            gcs_path = f"gs://{BRONZE_BUCKET}/{blob_name}"
-
-            # 5. Upload to GCS
-            logger.info(f"Uploading {rows_written} rows to {gcs_path}")
-            gcs_client = storage.Client(project=PROJECT_ID)
-            bucket = gcs_client.bucket(BRONZE_BUCKET)
-            blob = bucket.blob(blob_name)
-            blob.upload_from_string(ndjson_content, content_type="application/x-ndjson")
-        else:
-            logger.info("OpenSky API returned no state vectors. Nothing to write.")
-
-        # 6. Return success response
-        success_payload = {
-            "status": "success",
-            "gcs_path": gcs_path,
-            "rows_written": rows_written,
-            "fetch_timestamp": fetch_timestamp_iso,
-        }
-        return success_payload, 200
-
+    # --- Download BTS zip ---
+    url = BTS_URL.format(year=year, month=month)
+    logger.info(f"Downloading BTS data from: {url}")
+    try:
+        response = requests.get(url, timeout=120)
+        response.raise_for_status()
     except requests.exceptions.HTTPError as e:
-        error_message = f"HTTP Error fetching data from OpenSky API: {e}"
-        logger.error(error_message)
+        logger.error(f"HTTP error downloading BTS data: {e}")
         return {"status": "error", "message": str(e)}, e.response.status_code if e.response else 500
-    except Exception as e:
-        logger.error(f"An unexpected error occurred: {e}", exc_info=True)
-        return {"status": "error", "message": str(e)}, 500
+
+    # --- Extract CSV from zip ---
+    records = _extract_records_from_zip(response.content, year, month)
+    logger.info(f"Extracted {len(records)} records from BTS zip.")
+
+    # --- Upload NDJSON to GCS Bronze ---
+    now_utc = datetime.now(timezone.utc)
+    blob_name = f"bts/{year}/{month:02d}/bts_{now_utc.strftime('%Y%m%d')}.ndjson"
+    gcs_path = f"gs://{BRONZE_BUCKET}/{blob_name}"
+    ndjson_content = "\n".join(json.dumps(r) for r in records)
+
+    gcs_client = storage.Client(project=PROJECT_ID)
+    bucket = gcs_client.bucket(BRONZE_BUCKET)
+    blob = bucket.blob(blob_name)
+    blob.upload_from_string(ndjson_content, content_type="application/x-ndjson")
+    logger.info(f"Uploaded {len(records)} rows to {gcs_path}")
+
+    # --- Load to BigQuery ---
+    rows_loaded = _load_to_bigquery(bq_client, records)
+    logger.info(f"Loaded {rows_loaded} rows into {BTS_STAGING_TABLE}.")
+
+    return {
+        "status": "success",
+        "year": year,
+        "month": month,
+        "gcs_path": gcs_path,
+        "rows_written": len(records),
+        "rows_loaded_to_bq": rows_loaded,
+    }, 200
+
+
+def _check_existing_rows(client: bigquery.Client, year: int, month: int) -> int:
+    """
+    Query stg_bts_flights to check if data for the given year/month already exists.
+
+    Returns the row count (0 if not yet loaded).
+    """
+    query = """
+    SELECT COUNT(*) AS row_count
+    FROM `{view}`
+    WHERE EXTRACT(YEAR FROM flight_date) = @year
+      AND EXTRACT(MONTH FROM flight_date) = @month
+    """.format(view=BTS_IDEMPOTENCY_VIEW)
+
+    job_config = bigquery.QueryJobConfig(
+        query_parameters=[
+            bigquery.ScalarQueryParameter("year", "INT64", year),
+            bigquery.ScalarQueryParameter("month", "INT64", month),
+        ]
+    )
+    result = client.query(query, job_config=job_config).result()
+    return next(result)["row_count"]
+
+
+def _extract_records_from_zip(zip_bytes: bytes, year: int, month: int) -> list[dict]:
+    """
+    Extract flight records from a BTS zip file and return as a list of dicts.
+
+    Injects ingestion_timestamp into each record.
+    """
+    ingestion_ts = datetime.now(timezone.utc).isoformat()
+    records: list[dict] = []
+
+    with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
+        csv_names = [name for name in zf.namelist() if name.endswith(".csv")]
+        if not csv_names:
+            raise ValueError("No CSV file found in BTS zip archive.")
+
+        with zf.open(csv_names[0]) as csv_file:
+            reader = csv.DictReader(io.TextIOWrapper(csv_file, encoding="utf-8-sig"))
+            for row in reader:
+                row["ingestion_timestamp"] = ingestion_ts
+                records.append(dict(row))
+
+    return records
+
+
+def _load_to_bigquery(client: bigquery.Client, records: list[dict]) -> int:
+    """
+    Load records into flights_staging.raw_bts_flights using load_table_from_json().
+
+    Returns the number of rows successfully loaded.
+    """
+    job_config = bigquery.LoadJobConfig(
+        write_disposition=bigquery.WriteDisposition.WRITE_APPEND,
+        source_format=bigquery.SourceFormat.NEWLINE_DELIMITED_JSON,
+        autodetect=True,
+    )
+    job = client.load_table_from_json(records, BTS_STAGING_TABLE, job_config=job_config)
+    job.result()
+    return job.output_rows

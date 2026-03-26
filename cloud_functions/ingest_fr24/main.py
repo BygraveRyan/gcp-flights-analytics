@@ -3,9 +3,10 @@ import logging
 import json
 import requests
 from datetime import datetime, timezone
+from flask import Request
+from google.cloud import bigquery
 from google.cloud import storage
 from google.cloud import secretmanager
-from typing import Any
 
 # --- Project Constants ---
 PROJECT_ID = "flights-analytics-prod"
@@ -32,7 +33,7 @@ def _get_secret(project_id: str, secret_id: str, version_id: str = "latest") -> 
     return response.payload.data.decode("UTF-8")
 
 @functions_framework.http
-def ingest_fr24(request: Any) -> tuple[dict[str, Any], int]:
+def ingest_fr24(request: Request) -> tuple[dict, int]:
     """
     HTTP-triggered Cloud Function to ingest live flight data from FlightRadar24.
     Fetches raw flight positions, converts to NDJSON, and uploads to GCS Bronze.
@@ -98,14 +99,30 @@ def ingest_fr24(request: Any) -> tuple[dict[str, Any], int]:
             bucket = gcs_client.bucket(BRONZE_BUCKET)
             blob = bucket.blob(blob_name)
             blob.upload_from_string(ndjson_content, content_type="application/x-ndjson")
+
+            # 7. Load records to BigQuery staging
+            bq_table = f"{PROJECT_ID}.flights_staging.raw_fr24_positions"
+            records_for_bq = [flight | {"ingestion_timestamp": fetch_timestamp_iso} for flight in flights]
+            job_config = bigquery.LoadJobConfig(
+                write_disposition=bigquery.WriteDisposition.WRITE_APPEND,
+                source_format=bigquery.SourceFormat.NEWLINE_DELIMITED_JSON,
+                autodetect=True,
+            )
+            bq_client = bigquery.Client(project=PROJECT_ID)
+            job = bq_client.load_table_from_json(records_for_bq, bq_table, job_config=job_config)
+            job.result()
+            rows_loaded_to_bq = job.output_rows
+            logger.info(f"Loaded {rows_loaded_to_bq} rows into {bq_table}.")
         else:
             logger.info("FR24 API returned no flights for these bounds. Nothing to write.")
+            rows_loaded_to_bq = 0
 
-        # 7. Return success response
+        # 8. Return success response
         return {
             "status": "success",
             "gcs_path": gcs_path,
             "rows_written": rows_written,
+            "rows_loaded_to_bq": rows_loaded_to_bq,
             "fetch_timestamp": fetch_timestamp_iso,
         }, 200
 
