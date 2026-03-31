@@ -117,12 +117,12 @@ FR24 API ────────┘                                            
 | --- | --- | --- |
 | 1 | GCP Foundation — buckets, datasets, service accounts | ✅ Complete |
 | 2 | Cloud Functions Gen2 — BTS CSV & FR24 ingestion + BQ staging loads | ✅ Complete |
-| 3 | BigQuery DDL — star schema tables, Dataform project, materialized views | 🔄 In Progress |
-| 4 | Dataform execution — SCD-2 MERGEs and incremental fact loads | ⬜ Not Started |
-| 5 | Gemini AI Monitor — deploy and wire to pipeline_run_log | ⬜ Not Started |
-| 6 | Cloud Scheduler — orchestrate ingestion and Dataform runs | ⬜ Not Started |
-| 7 | Looker Studio — build carrier, route, and delay dashboards | ⬜ Not Started |
-| 8 | GitHub Actions CI/CD — PR checks and prod deploy pipeline | ⬜ Not Started |
+| 3 | BigQuery DDL — star schema tables, Dataform project, materialized views | ✅ Complete |
+| 4 | Dataform execution — SCD-2 MERGEs and incremental fact loads | ✅ Complete |
+| 5 | Gemini AI Monitor — deploy and wire to pipeline_run_log | ✅ Complete |
+| 6 | Cloud Scheduler — orchestrate ingestion and Dataform runs | 🔄 In Progress |
+| 7 | Looker Studio — build carrier, route, and delay dashboards | 🔄 In Progress |
+| 8 | GitHub Actions CI/CD — PR checks and prod deploy pipeline | ✅ Complete |
 
 ---
 
