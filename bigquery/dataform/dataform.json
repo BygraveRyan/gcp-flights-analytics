@@ -1,0 +1,6 @@
+{
+  "defaultProject": "flights-analytics-prod",
+  "defaultDataset": "flights_dw",
+  "defaultLocation": "europe-west2",
+  "assertionSchema": "dataform_assertions"
+}
