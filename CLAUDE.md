@@ -1,134 +1,103 @@
-# CLAUDE.md — GCP Flights Analytics Pipeline
+# CLAUDE.md — flights-analytics-prod
 
-## 1. Agent Mission
+Primary coding agent instructions for Claude Code.
 
-All actions are governed by strict engineering standards.
+## Project Context
 
-- Produce clean, idiomatic Python 3.12 and GoogleSQL.
-- Always propose terminal commands for the human to run — never execute
-  `gcloud`, `bq`, `gsutil`, or `git merge` yourself.
-- Default to the smallest change that satisfies the requirement.
-- Treat every DDL change as a migration: schema-safe and reversible.
+GCP data pipeline: BTS + FR24 → Cloud Functions → GCS → BigQuery (Dataform) → Looker Studio.
+Project ID: `flights-analytics-prod` | Region: `europe-west2` | Python 3.12
 
----
+Read `docs/architecture.md` before starting any task. It is the source of truth.
 
-## 2. Stack
+## Hard Prohibitions
 
-| Layer           | Technology                                              |
-|-----------------|---------------------------------------------------------|
-| Cloud           | Google Cloud Platform — region `europe-west2` (London) |
-| Ingestion       | Cloud Functions Gen2 (Python 3.12)                      |
-| Raw storage     | Google Cloud Storage (Bronze / Silver / Gold buckets)   |
-| Warehouse       | BigQuery (partitioned + clustered tables, SCD-2)        |
-| Transformation  | Dataform (SQL workflows, scheduling, assertions)        |
-| Orchestration   | Cloud Scheduler (trigger Cloud Functions & Dataform)    |
-| Dashboards      | Looker Studio Pro + Conversational Analytics            |
-| AI Monitoring   | `google-genai` SDK — Gemini models                      |
-| CI/CD           | GitHub Actions + Workload Identity Federation           |
+- **NEVER** run `gcloud`, `bq`, `gsutil` commands — propose them for the human to run
+- **NEVER** push to `main` or `dev` branches
+- **NEVER** hardcode secrets or API keys — use Secret Manager
+- **NEVER** use Legacy SQL — Standard SQL only
+- **NEVER** use `from typing import List, Dict, Tuple, Optional` — use native Python 3.12 types
+- **NEVER** use `functions_framework.Request` as type hint — use `request: Any` (import Any from typing)
+- **NEVER** commit directly to `main` or `dev`
 
----
+## Code Patterns
 
-## 3. Repository Topology
+### Cloud Functions (Gen2, Python 3.12)
 
+```python
+from typing import Any
+import functions_framework
+import logging
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+@functions_framework.http
+def function_name(request: Any) -> tuple[dict, int]:
+    request_json = request.get_json(silent=True) or {}
+    try:
+        ...
+        return {"status": "success", ...}, 200
+    except SpecificException as e:
+        logger.error(f"...: {e}")
+        return {"status": "error", "message": str(e)}, 500
+    except Exception as e:
+        logger.error(f"Unexpected error: {e}", exc_info=True)
+        return {"status": "error", "message": str(e)}, 500
 ```
-cloud_functions/              # Gen2 HTTP/Pub-Sub functions — one sub-dir per source
-bigquery/ddl/                 # CREATE TABLE / VIEW DDL; apply via bq CLI, never in-place edits
-bigquery/dataform/            # Dataform project — sqlx models, assertions, schedules
-bigquery/materialized_views/  # Standalone materialized-view DDL outside Dataform
-.github/workflows/            # CI/CD pipelines — lint, unit tests, deploy gates
-tests/unit/                   # pytest unit tests; no live GCP calls, no mocks of BQ schema
-docs/                         # Architecture diagrams, ADRs, pipeline runbooks
+
+### BigQuery SQL
+
+- Standard SQL only — no Legacy SQL
+- All DDL targets `flights-analytics-prod` project
+- Datasets: `flights_staging`, `flights_dw`
+- Partition by date columns, cluster by high-cardinality filter columns
+- Surrogate keys: MD5 hash of natural key fields
+
+### Dataform SQLX
+
+- All files in `bigquery/dataform/definitions/`
+- Use `${ref("table_name")}` for dependencies — never hardcode dataset paths
+- Staging: `config { type: "view" }`
+- Fact/dim loads: `config { type: "incremental" }` or `config { type: "operations" }` for MERGEs
+
+## Git Workflow
+
+All work on `feat/short-description` branches.
+
+```bash
+git add <specific files>        # never git add -A or git add .
+git commit -m "type(scope): description"
+# Then propose: gh pr create --base dev ...
+# Human reviews and merges
 ```
 
----
+Conventional commit scopes: `cloud-functions`, `bigquery`, `dataform`, `cicd`, `docs`, `tests`
 
-## 4. Star Schema
+## Infrastructure Commands (propose, never run)
 
-The BigQuery warehouse uses a **star schema** centred on two fact tables.
+```bash
+# Deploy Cloud Function
+gcloud functions deploy fn-ingest-fr24 \
+  --gen2 --runtime=python312 --region=europe-west2 \
+  --source=cloud_functions/ingest_fr24 \
+  --entry-point=ingest_fr24 --trigger-http \
+  --no-allow-unauthenticated \
+  --timeout=120s --memory=256Mi \
+  --min-instances=0
 
-| Table            | Grain                            | Notes                                                                                          |
-|------------------|----------------------------------|------------------------------------------------------------------------------------------------|
-| `fact_flights`   | One flight segment               | Links to all four dims; partitioned on `flight_date`                                           |
-| `fact_positions` | One FR24 position record         | High-volume; partitioned on `position_ts` (DATE)                                               |
-| `dim_date`       | One calendar day                 | Static spine 2020-2030; never SCD                                                              |
-| `dim_carrier`    | One carrier version              | SCD Type 2; surrogate key `carrier_sk`                                                         |
-| `dim_airport`    | One airport version              | SCD Type 2; **role-playing** dim — joined twice on `fact_flights` as `origin_airport_sk` and `destination_airport_sk` |
+# Run BigQuery DDL
+bq query --use_legacy_sql=false < bigquery/ddl/<file>.sql
+```
 
----
+## Architecture Quick Reference
 
-## 5. Commit Standards
-
-Use **Conventional Commits** format: `<type>(<scope>): <subject>`
-
-**Types:** `feat` · `fix` · `docs` · `refactor` · `chore` · `test`
-
-**Scopes:**
-
-| Scope              | When to use                                      |
-|--------------------|--------------------------------------------------|
-| `cloud-functions`  | Changes inside `cloud_functions/`                |
-| `bigquery`         | DDL, stored procs, remote models                 |
-| `dataform`         | Anything inside `bigquery/dataform/`             |
-| `cicd`             | `.github/workflows/`                             |
-| `infra`            | Terraform / gcloud infrastructure                |
-| `docs`             | `docs/`, `README.md`, `CLAUDE.md`                |
-
-Example: `feat(cloud-functions): add retry logic to ingest_fr24`
-
----
-
-## 6. Git Workflow
-
-### Branch strategy
-
-| Branch | Purpose |
-| ------ | ------- |
-| `main` | Production only — never commit directly |
-| `dev` | Integration branch — all feature PRs target here |
-| `feat/<short-description>` | All new work (e.g. `feat/bigquery-ddl`, `feat/dataform-setup`) |
-
-### Claude Code git permissions
-
-Claude Code **may** run:
-
-- `git checkout -b feat/<name>` — create a feature branch
-- `git add` — stage changes
-- `git commit` — commit using Conventional Commits format
-- `git push origin feat/<name>` — push the feature branch
-- `gh pr create` — open a PR targeting `dev`
-
-### Human responsibilities
-
-- Review and approve PRs on GitHub
-- `gh pr merge --squash` — merge feature PRs into `dev`
-- Periodically merge `dev` into `main` via a PR
-- All `gcloud`, `bq`, and `gsutil` commands
-
-### Claude Code must NEVER
-
-- Push directly to `main` or `dev`
-- Merge any PR
-- Run infrastructure commands (`gcloud`, `bq`, `gsutil`)
-
----
-
-## 7. Guardrails
-
-### Never do autonomously
-- Run `gcloud`, `bq`, `gsutil`, or `git merge` — always propose the command for the human.
-- Hardcode secrets, API keys, or project IDs — use Secret Manager references or env vars.
-- Write Legacy SQL (`#legacySQL`) — always GoogleSQL (standard SQL).
-
-### Python rules
-- Cloud Functions entry points must type-hint the request parameter as
-  `flask.Request`, **not** `functions_framework.Request`.
-- Use native Python 3.12 built-in types (`list[str]`, `dict[str, int]`, `tuple`,
-  `X | None`) — do **not** import from the `typing` module (`List`, `Dict`,
-  `Optional`, etc.).
-- One Cloud Function per sub-directory under `cloud_functions/`; each has its
-  own `requirements.txt` and `main.py`.
-
-### SQL rules
-- All DDL must be idempotent (`CREATE OR REPLACE` / `IF NOT EXISTS`).
-- Partition and cluster every fact table; document the rationale in a comment.
-- SCD-2 merges go in `bigquery/stored_procs/` as named stored procedures.
+| Layer | What | Where |
+| --- | --- | --- |
+| Ingestion | Cloud Functions Gen2 | `cloud_functions/` |
+| Raw storage | GCS audit bucket | `flights-bronze-flights-analytics-prod` |
+| Staging | BigQuery `flights_staging` | `raw_bts_flights`, `raw_fr24_positions` |
+| Transformation | Dataform SQLX | `bigquery/dataform/` |
+| Warehouse | BigQuery `flights_dw` | Star schema (fact + dims) |
+| Reporting | Materialized Views | `bigquery/materialized_views/` |
+| Orchestration | Cloud Scheduler | 06:00 UTC daily |
+| AI monitoring | Gemini 2.5 Pro via google-genai SDK | `cloud_functions/gemini_monitor/` |

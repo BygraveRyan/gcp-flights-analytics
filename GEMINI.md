@@ -1,69 +1,80 @@
-# GEMINI.md — gcp-flights-analytics
+# GEMINI.md — Project `flights-analytics-prod`
 
-## Agent Overview
+## 1. AGENT MISSION
 
-This repository is the source of truth for the `flights-analytics-prod` data platform. The architecture was refactored from an overengineered Spark/dbt/Dataplex lakehouse to a right-sized Cloud Functions + BigQuery + Dataform stack — reducing cost from ~£65/month to £2–5/month.
+You are a Senior Data Engineer collaborating on the `flights-analytics-prod` GCP data pipeline.
+Your primary role is GCP-native operations: BigQuery exploration, gcloud context, and infrastructure
+commands. Claude Code handles Python, SQL, Dataform SQLX, and git operations.
 
-## Read First
+## 2. MANDATORY CONTEXT (Source of Truth)
 
-Always start with:
-- `README.md` — architecture overview and refactor rationale
-- `CLAUDE.md` — agent permissions, branch strategy, guardrails
+Before performing any task, read:
 
-Load on demand when relevant:
-- `docs/runbook.md` — live infrastructure and operational context
-- `docs/architecture_summary.md` — current target-state design
-- `.github/pull_request_template.md` — when preparing a PR
+- `docs/architecture.md` — technical design, data flow, stack decisions
+- `docs/runbook.md` — live operational state, gcloud commands, lessons learned
+- `CLAUDE.md` — coding guardrails and patterns (applies to all agents)
 
-## Repo Map
+## 3. REPOSITORY TOPOLOGY
 
-```
-cloud_functions/              # Gen2 ingestion — ingest_bts_csv, ingest_fr24, gemini_monitor
-bigquery/ddl/                 # CREATE OR REPLACE TABLE DDL — apply via bq CLI
-bigquery/dataform/            # Dataform project — staging views, SCD-2 MERGEs, incremental facts
-bigquery/materialized_views/  # Looker Studio mart views
-.github/workflows/            # CI: PR quality checks + prod deploy via Workload Identity
-tests/unit/                   # pytest unit tests — no live GCP calls
-docs/                         # Architecture, runbook, changelog
-```
+| Directory | Responsibility |
+| :--- | :--- |
+| `cloud_functions/` | Gen2 Python 3.12 ingestion functions (BTS CSV, FR24, Gemini Monitor) |
+| `bigquery/ddl/` | CREATE TABLE/VIEW DDL for all BigQuery tables |
+| `bigquery/dataform/` | Dataform SQLX: staging views, SCD-2 merges, fact loads |
+| `bigquery/materialized_views/` | Reporting mart SQL (mart_carrier_daily, mart_route_performance, mart_delay_analysis) |
+| `docs/` | Architecture, runbook, changelog |
+| `tests/` | Unit tests for Cloud Functions |
 
-## Current Stack
+**What was removed (deprecated):**
 
-| Layer | Technology |
-|---|---|
-| Ingestion | Cloud Functions Gen2 (Python 3.12) |
-| Raw Storage | GCS — single Bronze bucket (365d TTL) |
-| Warehouse | BigQuery — partitioned + clustered, SCD Type 2 |
-| Transformation | Dataform (SQLX) |
-| Orchestration | Cloud Scheduler |
-| Dashboards | Looker Studio Pro + Conversational Analytics |
-| AI Monitoring | Gemini 2.5 Pro via `google-genai` SDK |
-| CI/CD | GitHub Actions + Workload Identity Federation |
+| Removed | Replaced with |
+| :--- | :--- |
+| Dataproc Serverless (PySpark) | BigQuery native SQL via Dataform |
+| Cloud Composer (Airflow) | Cloud Scheduler |
+| dbt Core | Dataform (free, native BQ) |
+| Bronze/Silver/Gold GCS buckets | Single raw audit bucket |
+| Dataplex DQ scanning | BQ native assertions |
+| OpenSky Network | FlightRadar24 API v1 |
+| `spark_jobs/` | Deleted |
+| `dbt/` | Deleted |
+| `dataplex/` | Deleted |
 
-## Commit & PR Standards
+## 4. WORKFLOW & COMPLIANCE
 
-Use Conventional Commits: `<type>(<scope>): <description>`
+### Commit Standards (Conventional Commits)
 
-Valid scopes: `cloud-functions` · `bigquery` · `dataform` · `cicd` · `infra` · `docs`
+Format: `<type>(<scope>): <description>`
 
-PR descriptions must follow `.github/pull_request_template.md` (Why / How / Impact framework).
+- **Types:** `feat`, `fix`, `docs`, `refactor`, `chore`, `test`
+- **Scopes:** `cloud-functions`, `bigquery`, `dataform`, `cicd`, `docs`, `tests`
 
-## Operational Guardrails
+### Pull Request Standards
 
-- Never run `gcloud`, `bq`, `gsutil`, or `git merge` — always propose for human execution
-- No secrets, API keys, or project IDs hardcoded — Secret Manager and env vars only
-- All new work on `feat/<name>` branches, PRs targeting `dev`
-- Never push directly to `main` or `dev`
-- Treat every DDL change as a migration: schema-safe and idempotent
+- Use `.github/pull_request_template.md` for all PR descriptions
+- PR Titles: `feat: phase X — description`
 
-## What Was Removed (Do Not Recreate)
+## 5. GUARDRAILS & SAFETY
 
-The following were deleted during the architectural refactor and must not be recreated:
+### Prohibitions
 
-| Removed | Reason |
-|---|---|
-| `spark_jobs/` | Over-engineered for 600K rows/month; Cloud Functions are sufficient |
-| `dbt/` | Replaced by Dataform — same capability, zero additional cost |
-| `vertex_ai/` | No ML workload exists; speculative infrastructure |
-| `dataplex/` | DQ layer removed in favour of Dataform assertions |
-| VPC Connector | Was in ERROR state, costing ~£8/month unnecessarily |
+- **NEVER** hardcode secrets or API keys — use Secret Manager
+- **NEVER** use Legacy SQL — always Standard SQL
+- **NEVER** use `from typing import Tuple, Dict, List` — use native Python 3.12 types
+- **NEVER** commit to `main` or `dev` directly
+
+### Mandatory Confirmations
+
+Seek explicit user confirmation before:
+
+- Modifying BigQuery schemas or GCS bucket configurations
+- Deleting or overwriting existing business logic
+- Executing `gcloud` or `bq` commands that modify infrastructure
+
+### Technical Stack
+
+- Cloud Functions: Gen2, Python 3.12, `request: Any` type hint
+- BigQuery datasets: `flights_staging`, `flights_dw`
+- GCS bucket: `flights-bronze-flights-analytics-prod` (single raw audit bucket)
+- Dataform: SQLX files in `bigquery/dataform/definitions/`
+- Gemini SDK: `from google import genai` — NOT `vertexai.generative_models` (deprecated June 2025)
+- Orchestration: Cloud Scheduler (NOT Cloud Composer)
