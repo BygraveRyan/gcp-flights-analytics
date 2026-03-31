@@ -79,7 +79,42 @@ Example: `feat(cloud-functions): add retry logic to ingest_fr24`
 
 ---
 
-## 6. Guardrails
+## 6. Git Workflow
+
+### Branch strategy
+
+| Branch | Purpose |
+| ------ | ------- |
+| `main` | Production only — never commit directly |
+| `dev` | Integration branch — all feature PRs target here |
+| `feat/<short-description>` | All new work (e.g. `feat/bigquery-ddl`, `feat/dataform-setup`) |
+
+### Claude Code git permissions
+
+Claude Code **may** run:
+
+- `git checkout -b feat/<name>` — create a feature branch
+- `git add` — stage changes
+- `git commit` — commit using Conventional Commits format
+- `git push origin feat/<name>` — push the feature branch
+- `gh pr create` — open a PR targeting `dev`
+
+### Human responsibilities
+
+- Review and approve PRs on GitHub
+- `gh pr merge --squash` — merge feature PRs into `dev`
+- Periodically merge `dev` into `main` via a PR
+- All `gcloud`, `bq`, and `gsutil` commands
+
+### Claude Code must NEVER
+
+- Push directly to `main` or `dev`
+- Merge any PR
+- Run infrastructure commands (`gcloud`, `bq`, `gsutil`)
+
+---
+
+## 7. Guardrails
 
 ### Never do autonomously
 - Run `gcloud`, `bq`, `gsutil`, or `git merge` — always propose the command for the human.

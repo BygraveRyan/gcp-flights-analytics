@@ -1,3 +1,23 @@
+<!-- 
+  V.A.N.T.i.S. Pull Request Template (GCP Edition)
+  Follow the "Why, How, Impact" framework to tell the story of this change.
+-->
+
+## 📖 The Story
+
+### WHY - What problem are we solving?
+<!-- Explain the friction or limitation in the current architecture. -->
+
+
+### HOW - What did we actually change?
+<!-- Detail the technical implementation. -->
+
+
+### IMPACT - What is the result?
+<!-- Explain how the system is better now. -->
+
+---
+
 ## 📋 Metadata
 - **PR Type:** [feat | fix | docs | refactor | chore | test]
 - **Component:** [cloud-functions | spark | bigquery | dbt | composer | dataplex | cicd | infra | architecture]
