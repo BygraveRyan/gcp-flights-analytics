@@ -24,8 +24,7 @@ All actions are governed by strict engineering standards.
 | Orchestration   | Cloud Scheduler (trigger Cloud Functions & Dataform)    |
 | Dashboards      | Looker Studio Pro + Conversational Analytics            |
 | AI Monitoring   | `google-genai` SDK — Gemini models                      |
-| CI/CD           | GitHub Actions                                          |
-| Data Quality    | Dataplex Universal Catalog                              |
+| CI/CD           | GitHub Actions + Workload Identity Federation           |
 
 ---
 
@@ -70,7 +69,6 @@ Use **Conventional Commits** format: `<type>(<scope>): <subject>`
 | `cloud-functions`  | Changes inside `cloud_functions/`                |
 | `bigquery`         | DDL, stored procs, remote models                 |
 | `dataform`         | Anything inside `bigquery/dataform/`             |
-| `composer`         | DAG files in `dags/`                             |
 | `cicd`             | `.github/workflows/`                             |
 | `infra`            | Terraform / gcloud infrastructure                |
 | `docs`             | `docs/`, `README.md`, `CLAUDE.md`                |

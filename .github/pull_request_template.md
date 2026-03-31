@@ -20,7 +20,7 @@
 
 ## 📋 Metadata
 - **PR Type:** [feat | fix | docs | refactor | chore | test]
-- **Component:** [cloud-functions | spark | bigquery | dbt | composer | dataplex | cicd | infra | architecture]
+- **Component:** [cloud-functions | bigquery | dataform | cicd | infra | docs]
 - **Phase:** [e.g., Phase 1, Phase 2]
 
 ## 🚀 Summary

@@ -1,62 +1,69 @@
-# GEMINI.md — flights-analytics-prod
+# GEMINI.md — gcp-flights-analytics
 
 ## Agent Overview
 
-This repository is the source of truth for the `flights-analytics-prod` data platform and its AI workflow. Keep persistent context here thin, keep detailed procedures in workspace skills, and treat Obsidian notes only as mirrors of repo state.
+This repository is the source of truth for the `flights-analytics-prod` data platform. The architecture was refactored from an overengineered Spark/dbt/Dataplex lakehouse to a right-sized Cloud Functions + BigQuery + Dataform stack — reducing cost from ~£65/month to £2–5/month.
 
 ## Read First
 
 Always start with:
-- `README.md`
-- `docs/architecture_summary.md`
-- `docs/changelog.md`
+- `README.md` — architecture overview and refactor rationale
+- `CLAUDE.md` — agent permissions, branch strategy, guardrails
 
 Load on demand when relevant:
-- `docs/runbook.md` for live infrastructure and operational context
-- `docs/architecture.md` for deeper target-state design
-- `.github/pull_request_template.md` when preparing a PR
-- `cloud_functions/GEMINI.md` when editing ingestion functions
+- `docs/runbook.md` — live infrastructure and operational context
+- `docs/architecture_summary.md` — current target-state design
+- `.github/pull_request_template.md` — when preparing a PR
 
 ## Repo Map
 
-- `cloud_functions/`: Gen2 ingestion functions for BTS, FR24, and legacy OpenSky assets
-- `spark_jobs/`: Dataproc Serverless PySpark jobs
-- `bigquery/`: DDL, stored procedures, and Gemini monitoring SQL
-- `dbt/`: warehouse transformation models
-- `dataplex/`: data quality rules
-- `dags/`: orchestration folder; currently no DAG files are committed
-- `docs/`: architecture, runbook, summaries, changelog, and mirror notes
-- `tests/`: unit coverage
+```
+cloud_functions/              # Gen2 ingestion — ingest_bts_csv, ingest_fr24, gemini_monitor
+bigquery/ddl/                 # CREATE OR REPLACE TABLE DDL — apply via bq CLI
+bigquery/dataform/            # Dataform project — staging views, SCD-2 MERGEs, incremental facts
+bigquery/materialized_views/  # Looker Studio mart views
+.github/workflows/            # CI: PR quality checks + prod deploy via Workload Identity
+tests/unit/                   # pytest unit tests — no live GCP calls
+docs/                         # Architecture, runbook, changelog
+```
 
-## Architecture Summary
+## Current Stack
 
-The repo implements a GCP lakehouse pipeline: ingestion functions land raw data in GCS Bronze, Spark promotes Bronze data toward curated layers, and BigQuery/dbt/Dataplex provide warehouse, transformation, and data quality assets. Some layers described in long-form docs are planned or partial, so verify repo contents before describing a component as implemented.
+| Layer | Technology |
+|---|---|
+| Ingestion | Cloud Functions Gen2 (Python 3.12) |
+| Raw Storage | GCS — single Bronze bucket (365d TTL) |
+| Warehouse | BigQuery — partitioned + clustered, SCD Type 2 |
+| Transformation | Dataform (SQLX) |
+| Orchestration | Cloud Scheduler |
+| Dashboards | Looker Studio Pro + Conversational Analytics |
+| AI Monitoring | Gemini 2.5 Pro via `google-genai` SDK |
+| CI/CD | GitHub Actions + Workload Identity Federation |
 
-## Phase Conventions
+## Commit & PR Standards
 
-The project uses phase labels in `README.md`, but the roadmap can lag or lead the committed code. When using a phase in docs, commits, or PRs, verify the touched components against the current repo state first.
+Use Conventional Commits: `<type>(<scope>): <description>`
 
-## Commit And PR Standards
+Valid scopes: `cloud-functions` · `bigquery` · `dataform` · `cicd` · `infra` · `docs`
 
-- Use conventional commits: `<type>(<scope>): <description>`
-- Existing scopes in repo materials include `cloud-functions`, `spark`, `bigquery`, `dbt`, `composer`, `dataplex`, `cicd`, `infra`, and `architecture`
-- PR descriptions should follow `.github/pull_request_template.md`
-- For non-trivial work, reference the matching file in `.ai/change_plans/` from the PR description
+PR descriptions must follow `.github/pull_request_template.md` (Why / How / Impact framework).
 
 ## Operational Guardrails
 
-- Repo files are canonical; Obsidian mirror notes are never the source of truth
-- Keep `GEMINI.md` thin and persistent; put procedures, templates, and checklists in skills
-- Use `change-planner` for multi-file, architectural, schema, infrastructure, or cross-directory work
-- Use `docs-maintainer` when architecture, pipeline shape, schema, infrastructure, or major phase state changes
-- Distinguish clearly between implemented, partial, and planned components
-- Do not run infrastructure-changing commands or git stage/commit/push operations without explicit approval
+- Never run `gcloud`, `bq`, `gsutil`, or `git merge` — always propose for human execution
+- No secrets, API keys, or project IDs hardcoded — Secret Manager and env vars only
+- All new work on `feat/<name>` branches, PRs targeting `dev`
+- Never push directly to `main` or `dev`
+- Treat every DDL change as a migration: schema-safe and idempotent
 
-## Skill Routing
+## What Was Removed (Do Not Recreate)
 
-Preferred workspace skills live in `.agents/skills/`. The repo also contains older `.gemini/skills/` skills; leave them intact unless the task explicitly migrates them.
+The following were deleted during the architectural refactor and must not be recreated:
 
-- `change-planner`: create or update concise implementation plans in `.ai/change_plans/`
-- `docs-maintainer`: maintain `docs/architecture_summary.md` and `docs/changelog.md`
-- `pr-author`: draft PR content from repo truth and the PR template
-- `obsidian-mirror`: refresh dashboard-style mirror notes without creating a second system of record
+| Removed | Reason |
+|---|---|
+| `spark_jobs/` | Over-engineered for 600K rows/month; Cloud Functions are sufficient |
+| `dbt/` | Replaced by Dataform — same capability, zero additional cost |
+| `vertex_ai/` | No ML workload exists; speculative infrastructure |
+| `dataplex/` | DQ layer removed in favour of Dataform assertions |
+| VPC Connector | Was in ERROR state, costing ~£8/month unnecessarily |
