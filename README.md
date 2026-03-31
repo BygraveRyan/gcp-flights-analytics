@@ -1,145 +1,151 @@
-# ✈️ GCP Flights Analytics Pipeline
-An end-to-end cloud data engineering platform built on **Google Cloud Platform** that ingests aviation datasets, processes them through a **lakehouse architecture**, and delivers **analytics-ready insights**.
+# GCP Flights Analytics Pipeline
 
-> **Note:** This is an **AI-Native Engineering** project. It is developed using a "Human-in-the-Loop" workflow with autonomous agents, governed by strict engineering standards and domain-specific AI skills.
+A production-grade cloud data engineering platform on **Google Cloud Platform** — built to demonstrate architectural accountability, cost-justified infrastructure decisions, and AI-governed pipeline operations.
 
----
-
-# 🤖 AI-Native Workflow
-
-Unlike traditional development, this repository is managed as an **Agent-Led Environment**.
-
-*   **Mission-Driven:** All engineering actions are governed by `GEMINI.md`, defining a "Senior Data Engineer" persona with strict guardrails.
-*   **Specialized Skills:** The project utilizes custom agent skills (located in `.gemini/skills/`) for domain-specific tasks:
-    *   `spark-architect`: Optimized PySpark jobs and partitioning logic.
-    *   `dbt-architect`: SCD-2 modelling and dbt standards.
-    *   `code-sanitizer`: Automated PEP 8 and SQL compliance.
-*   **Safety First:** Mandatory confirmation protocols for all infrastructure changes and Git operations.
+Ingests live aviation data (BTS On-Time Performance + FlightRadar24), models it into a star schema warehouse, and delivers analytics through Looker Studio with Gemini AI monitoring.
 
 ---
 
-# 🔎 Quick Summary
+## The Architectural Decision
 
-This project simulates a **real-world cloud data engineering platform** that ingests aviation datasets and transforms them into analytics-ready data products.
+The first version of this project was overengineered — Spark jobs, dbt, Vertex AI, Dataplex, a full lakehouse stack running at **~£65/month** for a 600K rows/month workload.
 
-It demonstrates how modern data teams design scalable pipelines using **cloud-native tools and lakehouse architecture patterns**.
+The refactor question was simple: *does this architecture justify its cost?*
 
-### Key capabilities
+The answer was no. The stack was a Ferrari engine for a bicycle use case.
 
-• Automated ingestion of historical and live flight data  
-• Lakehouse architecture (**Bronze → Silver → Gold**)  
-• Distributed transformations using **Dataproc Serverless PySpark**  
-• Dimensional modelling in **BigQuery using SCD Type 2**  
-• Pipeline orchestration with **Apache Airflow (Cloud Composer)**  
-• **AI-powered pipeline monitoring using Gemini**
+**Every unnecessary layer was deleted.** Spark jobs, dbt, Vertex AI processing, VPC connectors, stored procedures — all removed. The replacement stack (Cloud Functions + BigQuery + Dataform) handles the same workload for **£2–5/month** — a **97% cost reduction** — while being simpler to operate, test, and extend.
+
+This is the core skill the refactor demonstrates: the ability to identify architectural theater and defend the decision to remove it.
 
 ---
 
-# ⭐ Key Highlights
+## Recruiter Panel
 
-- Built a **production-style cloud data pipeline on GCP**
-- Processes **real aviation datasets and live flight APIs**
-- Implements **Lakehouse architecture (Bronze/Silver/Gold)**
-- Uses **Dataproc Serverless PySpark for scalable transformations**
-- Implements **SCD Type 2 dimensional modelling in BigQuery**
-- Automated orchestration with **Apache Airflow**
-- Includes **AI-powered pipeline monitoring with Gemini**
+| Attribute | Value |
+| --- | --- |
+| **Role target** | Data Engineer / Cloud Data Engineer / AI Infrastructure Engineer |
+| **Cloud** | Google Cloud Platform — `europe-west2` |
+| **Architectural decision** | Pruned overengineered lakehouse to right-sized stack — 97% cost reduction |
+| **Cost governance** | £65/month → £2–5/month; every component justified by ROI |
+| **AI governance** | Human-in-the-loop workflow with agent guardrails defined in `CLAUDE.md` |
+| **Warehouse pattern** | Star schema, partitioned + clustered, SCD Type 2 dimensions |
+| **AI integration** | Gemini 2.5 Pro via `google-genai` SDK for autonomous pipeline monitoring |
+| **Code standards** | Python 3.12, GoogleSQL, Conventional Commits, flake8, sqlfluff |
+| **Testing** | pytest unit tests, GitHub Actions CI on every PR |
 
 ---
 
-# 🛠️ Tech Stack
+## AI Governance Model
+
+This project is built with a **Human-in-the-Loop AI workflow** — not because AI can't execute terminal commands, but because unaudited AI actions on cloud infrastructure create real financial and operational risk.
+
+The governance model is intentional:
+
+- All GCP commands (gcloud, bq, gsutil, gh pr merge) are proposed by the agent and executed by the human — no autonomous cloud writes.
+- Agent behaviour is constrained by `CLAUDE.md` — scope, permitted actions, and escalation rules defined explicitly.
+- No secrets or project IDs hardcoded — Secret Manager and environment variables only.
+- All production changes go through feature branches with CI checks before human-approved merge.
+
+This mirrors the "MCP safety layer" pattern emerging in enterprise AI infrastructure — constraining agent context to prevent unintended cost spikes or data modifications.
+
+---
+
+## Why This Stack
+
+Every layer was chosen with a cost and fitness-for-purpose argument:
+
+| Layer | Choice | Why |
+| --- | --- | --- |
+| Ingestion | Cloud Functions Gen2 | Right-sized for event-driven ingest; no cluster to manage or pay for at idle |
+| Raw Storage | GCS (single bucket, 365d TTL) | Audit trail without the overhead of a multi-zone lakehouse |
+| Warehouse | BigQuery (partitioned + clustered) | Serverless; cost controlled by partition pruning and clustering on query columns |
+| Transformation | Dataform (SQLX) | Free, native to BigQuery, no external orchestrator needed for this workload |
+| Orchestration | Cloud Scheduler | £0.08/month — no Airflow/Composer overhead for a twice-daily trigger |
+| Monitoring | Gemini via Cloud Function | Autonomous anomaly detection on `pipeline_run_log` without a paid observability tool |
+| CI/CD | GitHub Actions | Free for public repos; Workload Identity Federation — no service account keys stored |
+
+**What was removed and why:**
+
+| Removed | Reason |
+| --- | --- |
+| `spark_jobs/` | Spark is designed for petabyte-scale; scanning 600K rows with it is pure overhead |
+| `dbt/` | Replaced by Dataform — same SQL transformation capability, zero additional cost |
+| `vertex_ai/` | No ML workload exists yet; running Vertex infrastructure speculatively is theater |
+| VPC Connector | Was in ERROR state and costing ~£8/month; Cloud Functions operate fine without it at this scale |
+| Stored procedures | Moved transformation logic to Dataform SQLX for testability and version control |
+
+---
+
+## Tech Stack
 
 | Layer | Technology |
-|------|-----------|
-| Cloud | Google Cloud Platform (GCP) |
-| Region | `europe-west2` (London) |
+| --- | --- |
+| Cloud | Google Cloud Platform — `europe-west2` (London) |
 | Ingestion | Cloud Functions Gen2 (Python 3.12) |
-| Storage | Google Cloud Storage |
-| Processing | Dataproc Serverless PySpark 3.5 |
-| Warehouse | BigQuery (partitioned + clustered, SCD-2) |
-| Transformation | dbt Core 1.8.x |
-| Orchestration | Cloud Composer 3 (Airflow 2.10) |
-| Data Quality | Dataplex Universal Catalog |
-| AI Monitoring | Gemini 2.5 Pro via `AI.GENERATE_TEXT` |
-| CI/CD | GitHub Actions |
-| Dashboard | Looker Studio |
-| **Dev / Agents** | **Gemini CLI, Claude Code, Gemini Code Assist** |
+| Raw Storage | Google Cloud Storage (single Bronze bucket) |
+| Warehouse | BigQuery — partitioned + clustered tables, SCD Type 2 |
+| Transformation | Dataform — SQLX models, incremental loads, SCD-2 MERGEs |
+| Orchestration | Cloud Scheduler |
+| Dashboards | Looker Studio Pro + Conversational Analytics |
+| AI Monitoring | Gemini 2.5 Pro via `google-genai` SDK |
+| CI/CD | GitHub Actions — flake8, pytest, sqlfluff, Workload Identity deploy |
 
 ---
 
-## 🏗️ Architecture Overview
+## Architecture
 
-```
+```text
 BTS API (CSV)  ──┐
-                 ├──► Cloud Functions (Gen2) ──► GCS Bronze
-FR24 API ────────┘                                    │
-                                                       ▼
-                                            PySpark (Dataproc Serverless)
-                                            Bronze ──► Silver ──► Gold
-                                                       │
-                                                       ▼
-                                              BigQuery (SCD-2 Warehouse)
-                                                       │
-                                                       ▼
-                                              dbt (Staging → Marts)
-                                                       │
-                                              ┌────────┴────────┐
-                                              ▼                 ▼
-                                       Looker Studio     Gemini AI Monitor
+                 ├──► Cloud Functions (Gen2) ──► GCS Bronze ──► BigQuery Staging
+FR24 API ────────┘                                                      │
+                                                                         ▼
+                                                              Dataform (SQLX)
+                                                       SCD-2 dims + incremental facts
+                                                                         │
+                                                              ┌──────────┴──────────┐
+                                                              ▼                     ▼
+                                                    Looker Studio Pro       Gemini AI Monitor
+                                                 (Materialized View marts)  (pipeline_run_log)
 ```
-
-### Lakehouse Zones
-
-| Zone | Bucket | Purpose | Retention |
-|------|--------|---------|-----------|
-| 🥉 Bronze | `flights-bronze-*` | Raw, unaltered source data | 30 days |
-| 🥈 Silver | `flights-silver-*` | Cleaned, schema-enforced Parquet | 90 days |
-| 🥇 Gold | `flights-gold-*` | Business-level aggregates | Indefinite |
 
 ---
 
-
-## 📦 Pipeline Phases
+## Pipeline Phases
 
 | Phase | Description | Status |
-|-------|-------------|--------|
-| 1 | GCP Foundation — buckets, datasets, service accounts, Dataplex | ✅ Complete |
-| 2 | Cloud Functions Gen2 — BTS CSV & FlightRadar24 API ingestion | ✅ Complete |
-| 3 | PySpark Bronze → Silver | ✅ Complete |
-| 4 | PySpark Silver → Gold | 🔄 In Progress |
-| 5 | BigQuery DDL — partitioned tables, external tables | ⬜ Not Started |
-| 6 | SCD Type 2 MERGE stored procedures | ⬜ Not Started |
-| 7 | dbt Project — staging, intermediate, marts | ⬜ Not Started |
-| 8 | Cloud Composer 3 DAG — full pipeline orchestration | ⬜ Not Started |
-| 9 | Gemini AI Monitoring Dashboard | ⬜ Not Started |
-| 10 | GitHub Actions CI/CD | ⬜ Not Started |
-| 11 | Looker Studio Dashboard | ⬜ Not Started |
+| --- | --- | --- |
+| 1 | GCP Foundation — buckets, datasets, service accounts | ✅ Complete |
+| 2 | Cloud Functions Gen2 — BTS CSV & FR24 ingestion + BQ staging loads | ✅ Complete |
+| 3 | BigQuery DDL — star schema tables, Dataform project, materialized views | ✅ Complete |
+| 4 | Dataform execution — SCD-2 MERGEs and incremental fact loads | ✅ Complete |
+| 5 | Gemini AI Monitor — deploy and wire to pipeline_run_log | ✅ Complete |
+| 6 | Cloud Scheduler — orchestrate ingestion and Dataform runs | 🔄 In Progress |
+| 7 | Looker Studio — build carrier, route, and delay dashboards | 🔄 In Progress |
+| 8 | GitHub Actions CI/CD — PR checks and prod deploy pipeline | ✅ Complete |
 
 ---
 
-## 📊 Data Sources
+## Data Sources
 
-- **[BTS On-Time Performance](https://www.transtats.bts.gov/)** — Monthly US domestic flight performance data (CSV via HTTP)
-- **[FlightRadar24 API v1](https://fr24api.flightradar24.com/)** — Live European airspace flight positions via REST API (Explorer plan)
-
----
-
-## 🚀 What I'm Learning
-
-This project is intentionally built to develop real, employable skills in a modern, AI-augmented environment:
-
-- **AI-Native Dev:** Building and managing an autonomous data engineering environment.
-- **Lakehouse Design:** Implementing a multi-zone (Bronze/Silver/Gold) storage strategy.
-- **Scalable Processing:** Writing production-quality PySpark jobs for Dataproc Serverless.
-- **SCD Type 2:** Managing slowly changing dimensions in a BigQuery warehouse.
-- **Orchestration:** Engineering complex dependencies with Apache Airflow.
+- **[BTS On-Time Performance](https://www.transtats.bts.gov/)** — Monthly US domestic flight performance (CSV)
+- **[FlightRadar24 API v1](https://fr24api.flightradar24.com/)** — Live European airspace positions (REST, Explorer plan)
 
 ---
 
-## 📄 Documentation
+## Repository Layout
 
-Full pipeline architecture, DDL, PySpark logic, dbt models, and DAG code are documented in [`docs/architecture.md`](docs/architecture.md).
+```text
+cloud_functions/              # Gen2 ingestion functions — ingest_bts_csv, ingest_fr24, gemini_monitor
+bigquery/ddl/                 # CREATE OR REPLACE TABLE DDL — apply with bq CLI
+bigquery/dataform/            # Dataform project — staging views, SCD-2 MERGEs, incremental facts
+bigquery/materialized_views/  # Looker Studio mart views
+.github/workflows/            # CI: PR quality checks + prod deploy via Workload Identity
+tests/unit/                   # pytest unit tests — no live GCP calls
+docs/                         # Architecture, runbook, changelog
+CLAUDE.md                     # Agent governance — permitted actions, escalation rules
+```
 
 ---
 
-*Built with ☁️ GCP, 🐍 Python 3.12, and 🤖 AI Pair-Programming.*
+*Built on GCP with Python 3.12. AI pair-programming (Claude Code + Gemini CLI) under explicit governance constraints.*
