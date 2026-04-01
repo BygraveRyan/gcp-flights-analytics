@@ -5,6 +5,7 @@ on:
     branches: [ main, dev ]
     paths:
       - 'bigquery/ddl/**'
+      - 'bigquery/materialized_views/**'
 
 jobs:
   dry-run-ddl:

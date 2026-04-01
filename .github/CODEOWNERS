@@ -1,6 +1,5 @@
-# CODEOWNERS
-# Defines required reviewers per path. PRs touching these paths require approval
-# from the listed owner(s) before merge.
+# CODEOWNERS — flights-analytics-prod
+# Required reviewers per path. PRs to main touching these paths require approval.
 # See: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
 
 # Default owner for everything not matched below
@@ -9,14 +8,18 @@
 # Cloud Functions — ingestion and monitoring logic
 /cloud_functions/ @BygraveRyan
 
-# BigQuery DDL — schema changes are high risk
+# BigQuery DDL — schema changes are irreversible without manual intervention
 /bigquery/ddl/ @BygraveRyan
 
-# Dataform transforms — warehouse logic
+# Dataform transforms — warehouse logic and dependency graph
 /bigquery/dataform/ @BygraveRyan
 
-# CI/CD workflows — changes here affect all deployments
+# CI/CD workflows — changes affect all deployments
 /.github/workflows/ @BygraveRyan
+
+# Agent instruction files — changes affect all agent behaviour
+/CLAUDE.md @BygraveRyan
+/GEMINI.md @BygraveRyan
 
 # Tests — must be reviewed alongside any function change
 /tests/ @BygraveRyan

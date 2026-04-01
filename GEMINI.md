@@ -60,7 +60,8 @@ Format: `<type>(<scope>): <description>`
 - **NEVER** hardcode secrets or API keys — use Secret Manager
 - **NEVER** use Legacy SQL — always Standard SQL
 - **NEVER** use `from typing import Tuple, Dict, List` — use native Python 3.12 types
-- **NEVER** commit to `main` or `dev` directly
+- **NEVER** commit or push directly to `main` — `main` is human-only
+- All feature work merges to `dev` via PR — Claude Code may merge its own PRs into `dev`
 
 ### Mandatory Confirmations
 
