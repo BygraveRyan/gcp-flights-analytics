@@ -57,3 +57,18 @@ jobs:
             --memory=512Mi \
             --min-instances=0 \
             --service-account=flights-pipeline-sa@flights-analytics-prod.iam.gserviceaccount.com
+
+      - name: Deploy fn-gemini-monitor
+        run: |
+          gcloud functions deploy fn-gemini-monitor \
+            --gen2 \
+            --runtime=python312 \
+            --region=europe-west2 \
+            --source=cloud_functions/gemini_monitor \
+            --entry-point=gemini_monitor \
+            --trigger-http \
+            --no-allow-unauthenticated \
+            --timeout=120s \
+            --memory=256Mi \
+            --min-instances=0 \
+            --service-account=flights-pipeline-sa@flights-analytics-prod.iam.gserviceaccount.com
