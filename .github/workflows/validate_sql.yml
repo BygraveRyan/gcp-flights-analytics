@@ -1,0 +1,44 @@
+name: "Validate SQL"
+
+on:
+  pull_request:
+    branches: [ main, dev ]
+    paths:
+      - 'bigquery/ddl/**'
+      - 'bigquery/materialized_views/**'
+
+jobs:
+  dry-run-ddl:
+    name: BigQuery DDL Dry Run
+    runs-on: ubuntu-latest
+    permissions:
+      contents: 'read'
+      id-token: 'write'
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Auth to GCP
+        uses: 'google-github-actions/auth@v2'
+        with:
+          credentials_json: '${{ secrets.GCP_SA_KEY }}'
+
+      - name: Set up Cloud SDK
+        uses: 'google-github-actions/setup-gcloud@v2'
+        with:
+          project_id: 'flights-analytics-prod'
+
+      - name: Dry Run — raw_fr24_positions DDL
+        run: |
+          bq query \
+            --use_legacy_sql=false \
+            --dry_run \
+            "$(cat bigquery/ddl/raw_fr24_positions.sql)"
+
+      - name: Dry Run — raw_bts_flights DDL
+        run: |
+          bq query \
+            --use_legacy_sql=false \
+            --dry_run \
+            "$(cat bigquery/ddl/raw_bts_flights.sql)"

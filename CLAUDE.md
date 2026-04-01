@@ -1,23 +1,60 @@
 # CLAUDE.md — flights-analytics-prod
 
 Primary coding agent instructions for Claude Code.
+Project: `flights-analytics-prod` | Region: `europe-west2` | Python 3.12
 
-## Project Context
+---
 
-GCP data pipeline: BTS + FR24 → Cloud Functions → GCS → BigQuery (Dataform) → Looker Studio.
-Project ID: `flights-analytics-prod` | Region: `europe-west2` | Python 3.12
+## Pipeline at a Glance
 
-Read `docs/architecture.md` before starting any task. It is the source of truth.
+| Layer | Technology | Location |
+| --- | --- | --- |
+| Ingestion | Cloud Functions Gen2 (Python 3.12) | `cloud_functions/` |
+| Raw storage | GCS single audit bucket | `flights-bronze-flights-analytics-prod` |
+| Staging | BigQuery `flights_staging` | `raw_bts_flights`, `raw_fr24_positions` |
+| Transformation | Dataform SQLX | `bigquery/dataform/definitions/` |
+| Warehouse | BigQuery `flights_dw` | Star schema — fact + dims |
+| Reporting | BigQuery Materialized Views | `bigquery/materialized_views/` |
+| Orchestration | Cloud Scheduler | 06:00 UTC daily |
+| AI monitoring | Gemini 2.5 Pro (`google-genai` SDK) | `cloud_functions/gemini_monitor/` |
+| CI/CD | GitHub Actions | `.github/workflows/` |
+
+---
+
+## Context Loading
+
+Load context based on task type — do not blanket-read all docs on every task:
+
+| Task type | Read before starting |
+| --- | --- |
+| New feature / new file | `docs/architecture.md` + `docs/changelog.md` |
+| Infrastructure change | `docs/runbook.md` |
+| Bug fix / test / docs update | CLAUDE.md is sufficient |
+| Anything touching schema or Dataform | `docs/architecture.md` sections 5–6 |
+
+---
 
 ## Hard Prohibitions
 
-- **NEVER** run `gcloud`, `bq`, `gsutil` commands — propose them for the human to run
-- **NEVER** push to `main` or `dev` branches
+- **NEVER** run `gcloud`, `bq`, or `gsutil` — propose commands for the human to run
+- **NEVER** commit, push, or merge directly to `main` — `main` is human-only
 - **NEVER** hardcode secrets or API keys — use Secret Manager
 - **NEVER** use Legacy SQL — Standard SQL only
-- **NEVER** use `from typing import List, Dict, Tuple, Optional` — use native Python 3.12 types
-- **NEVER** use `functions_framework.Request` as type hint — use `request: Any` (import Any from typing)
-- **NEVER** commit directly to `main` or `dev`
+- **NEVER** use `from typing import List, Dict, Tuple, Optional` — native Python 3.12 types only
+- **NEVER** use `functions_framework.Request` as a type hint — use `request: Any`
+
+---
+
+## When to Stop and Ask
+
+Pause and confirm with the human before proceeding if:
+
+- The task requires a schema change (adding/removing columns, changing types)
+- You are about to delete or overwrite existing business logic
+- The approach requires a `gcloud`/`bq` command with destructive or irreversible effect
+- The task scope is ambiguous and two reasonable interpretations exist
+
+---
 
 ## Code Patterns
 
@@ -28,7 +65,6 @@ from typing import Any
 import functions_framework
 import logging
 
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 @functions_framework.http
@@ -48,56 +84,52 @@ def function_name(request: Any) -> tuple[dict, int]:
 ### BigQuery SQL
 
 - Standard SQL only — no Legacy SQL
-- All DDL targets `flights-analytics-prod` project
-- Datasets: `flights_staging`, `flights_dw`
-- Partition by date columns, cluster by high-cardinality filter columns
+- DDL targets `flights-analytics-prod`; datasets: `flights_staging`, `flights_dw`
+- Partition by date columns; cluster by high-cardinality filter columns
 - Surrogate keys: MD5 hash of natural key fields
 
 ### Dataform SQLX
 
-- All files in `bigquery/dataform/definitions/`
+- Files in `bigquery/dataform/definitions/`
 - Use `${ref("table_name")}` for dependencies — never hardcode dataset paths
-- Staging: `config { type: "view" }`
+- Staging views: `config { type: "view" }`
 - Fact/dim loads: `config { type: "incremental" }` or `config { type: "operations" }` for MERGEs
+
+---
 
 ## Git Workflow
 
-All work on `feat/short-description` branches.
+All work on `feat/short-description` branches off `dev`.
 
 ```bash
-git add <specific files>        # never git add -A or git add .
+git add <specific files>           # never git add -A or git add .
 git commit -m "type(scope): description"
-# Then propose: gh pr create --base dev ...
-# Human reviews and merges
+# Create and merge PR into dev yourself:
+# gh pr create --base dev
+# gh pr merge --merge
+# main is off limits — never push, merge, or create PRs targeting main
 ```
 
-Conventional commit scopes: `cloud-functions`, `bigquery`, `dataform`, `cicd`, `docs`, `tests`
+Commit scopes: `cloud-functions`, `bigquery`, `dataform`, `cicd`, `docs`, `tests`
 
-## Infrastructure Commands (propose, never run)
+---
 
-```bash
-# Deploy Cloud Function
-gcloud functions deploy fn-ingest-fr24 \
-  --gen2 --runtime=python312 --region=europe-west2 \
-  --source=cloud_functions/ingest_fr24 \
-  --entry-point=ingest_fr24 --trigger-http \
-  --no-allow-unauthenticated \
-  --timeout=120s --memory=256Mi \
-  --min-instances=0
+## Documentation Rules
 
-# Run BigQuery DDL
-bq query --use_legacy_sql=false < bigquery/ddl/<file>.sql
+Every PR that changes code **must** include a docs commit in the same branch. No follow-ups.
+
+| What changed | Update required |
+| --- | --- |
+| Any code change | `docs/changelog.md` — date, what, why, files affected |
+| Infrastructure added/removed/modified | `docs/runbook.md` — new state, commands proposed, lessons |
+| Repo structure, stack, or Dataform files | `docs/architecture.md` — sections 3, 6, or 12 as applicable |
+
+`docs/changelog.md` format:
+
+```markdown
+## YYYY-MM-DD
+### <phase or feature name>
+- Change: ...
+- Impact: ...
+- Areas: ...
 ```
-
-## Architecture Quick Reference
-
-| Layer | What | Where |
-| --- | --- | --- |
-| Ingestion | Cloud Functions Gen2 | `cloud_functions/` |
-| Raw storage | GCS audit bucket | `flights-bronze-flights-analytics-prod` |
-| Staging | BigQuery `flights_staging` | `raw_bts_flights`, `raw_fr24_positions` |
-| Transformation | Dataform SQLX | `bigquery/dataform/` |
-| Warehouse | BigQuery `flights_dw` | Star schema (fact + dims) |
-| Reporting | Materialized Views | `bigquery/materialized_views/` |
-| Orchestration | Cloud Scheduler | 06:00 UTC daily |
-| AI monitoring | Gemini 2.5 Pro via google-genai SDK | `cloud_functions/gemini_monitor/` |
