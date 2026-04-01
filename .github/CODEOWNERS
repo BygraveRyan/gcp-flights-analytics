@@ -1,0 +1,22 @@
+# CODEOWNERS
+# Defines required reviewers per path. PRs touching these paths require approval
+# from the listed owner(s) before merge.
+# See: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# Default owner for everything not matched below
+* @BygraveRyan
+
+# Cloud Functions — ingestion and monitoring logic
+/cloud_functions/ @BygraveRyan
+
+# BigQuery DDL — schema changes are high risk
+/bigquery/ddl/ @BygraveRyan
+
+# Dataform transforms — warehouse logic
+/bigquery/dataform/ @BygraveRyan
+
+# CI/CD workflows — changes here affect all deployments
+/.github/workflows/ @BygraveRyan
+
+# Tests — must be reviewed alongside any function change
+/tests/ @BygraveRyan
