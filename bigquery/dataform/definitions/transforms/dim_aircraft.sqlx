@@ -1,0 +1,25 @@
+config {
+  type: "table",
+  schema: "flights_dw",
+  dependencies: ["stg_fr24_positions"]
+}
+
+WITH ranked AS (
+  SELECT
+    icao24,
+    callsign,
+    ingestion_date,
+    ROW_NUMBER() OVER (
+      PARTITION BY icao24
+      ORDER BY ingestion_date ASC
+    ) AS rn
+  FROM ${ref("stg_fr24_positions")}
+  WHERE icao24 IS NOT NULL
+)
+
+SELECT
+  icao24,
+  callsign,
+  ingestion_date AS first_seen_date
+FROM ranked
+WHERE rn = 1

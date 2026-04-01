@@ -1,0 +1,33 @@
+config {
+  type: "table",
+  schema: "flights_dw",
+  dependencies: ["stg_bts_flights"]
+}
+
+WITH all_airports AS (
+  SELECT origin_airport_code AS airport_code, flight_date
+  FROM ${ref("stg_bts_flights")}
+
+  UNION ALL
+
+  SELECT dest_airport_code AS airport_code, flight_date
+  FROM ${ref("stg_bts_flights")}
+),
+
+ranked AS (
+  SELECT
+    airport_code,
+    flight_date,
+    ROW_NUMBER() OVER (
+      PARTITION BY airport_code
+      ORDER BY flight_date ASC
+    ) AS rn
+  FROM all_airports
+  WHERE airport_code IS NOT NULL
+)
+
+SELECT
+  airport_code,
+  flight_date AS first_seen_date
+FROM ranked
+WHERE rn = 1
