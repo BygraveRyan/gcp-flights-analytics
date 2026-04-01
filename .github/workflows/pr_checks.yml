@@ -2,14 +2,15 @@ name: "PR Quality Checks"
 
 on:
   pull_request:
-    branches: [ main ]
+    branches: [ main, dev ]
     paths:
       - 'cloud_functions/**'
-      - 'spark_jobs/**'
-      - 'dbt/**'
+      - 'bigquery/**'
+      - 'tests/**'
 
 jobs:
-  lint-and-audit:
+  lint-and-security:
+    name: Lint & Security Scan
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
@@ -21,13 +22,31 @@ jobs:
           python-version: '3.12'
 
       - name: Install Linting Tools
-        run: |
-          pip install ruff bandit
+        run: pip install ruff bandit
 
       - name: Run Ruff (Linting)
-        # This will catch the 'typing.Dict' vs 'dict' issues
         run: ruff check .
 
       - name: Run Bandit (Security)
-        # This checks for hardcoded keys or unsafe library usage
-        run: bandit -r . -x ./tests
+        run: bandit -r . -x ./tests,./.venv
+
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Dependencies
+        run: |
+          pip install pytest
+          pip install -r cloud_functions/ingest_fr24/requirements.txt
+          pip install -r cloud_functions/ingest_bts_csv/requirements.txt
+
+      - name: Run Unit Tests
+        run: pytest tests/unit/ -v
