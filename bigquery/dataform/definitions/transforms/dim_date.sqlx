@@ -1,0 +1,23 @@
+config {
+  type: "table",
+  schema: "flights_dw"
+}
+
+WITH date_spine AS (
+  SELECT date_key
+  FROM UNNEST(
+    GENERATE_DATE_ARRAY(DATE '2020-01-01', CURRENT_DATE())
+  ) AS date_key
+)
+
+SELECT
+  date_key,
+  EXTRACT(YEAR      FROM date_key)                       AS year,
+  EXTRACT(QUARTER   FROM date_key)                       AS quarter,
+  EXTRACT(MONTH     FROM date_key)                       AS month,
+  FORMAT_DATE('%B', date_key)                            AS month_name,
+  EXTRACT(DAY       FROM date_key)                       AS day_of_month,
+  EXTRACT(DAYOFWEEK FROM date_key)                       AS day_of_week,
+  FORMAT_DATE('%A', date_key)                            AS day_name,
+  EXTRACT(DAYOFWEEK FROM date_key) IN (1, 7)             AS is_weekend
+FROM date_spine

@@ -1,0 +1,35 @@
+config {
+  type: "view",
+  schema: "flights_staging"
+}
+
+SELECT
+  -- Identity fields
+  CAST(fr24_id       AS STRING)    AS fr24_id,
+  CAST(icao24        AS STRING)    AS icao24,
+  CAST(callsign      AS STRING)    AS callsign,
+
+  -- Position fields
+  CAST(lat           AS FLOAT64)   AS lat,
+  CAST(lon           AS FLOAT64)   AS lon,
+  CAST(alt           AS INT64)     AS alt_ft,
+  CAST(gspeed        AS FLOAT64)   AS ground_speed_kts,
+  CAST(vspeed        AS FLOAT64)   AS vertical_speed_fpm,
+  CAST(track         AS FLOAT64)   AS track_deg,
+
+  -- Status
+  CAST(on_ground     AS BOOL)      AS on_ground,
+
+  -- Flight metadata
+  CAST(squawk        AS STRING)    AS squawk,
+  CAST(reg           AS STRING)    AS registration,
+  CAST(origin        AS STRING)    AS origin_iata,
+  CAST(destination   AS STRING)    AS destination_iata,
+  CAST(flight        AS STRING)    AS flight_number,
+  CAST(type          AS STRING)    AS aircraft_type,
+
+  -- Ingestion metadata
+  TIMESTAMP(ingestion_timestamp)             AS ingestion_timestamp,
+  DATE(TIMESTAMP(ingestion_timestamp))       AS ingestion_date
+
+FROM ${ref("raw_fr24_positions")}

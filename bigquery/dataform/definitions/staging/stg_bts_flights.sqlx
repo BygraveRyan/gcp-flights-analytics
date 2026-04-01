@@ -1,0 +1,54 @@
+config {
+  type: "view",
+  schema: "flights_staging"
+}
+
+SELECT
+  -- Date fields
+  DATE(
+    CAST(year  AS INT64),
+    CAST(month AS INT64),
+    CAST(day_of_month AS INT64)
+  )                                              AS flight_date,
+  CAST(year          AS INT64)                   AS year,
+  CAST(quarter       AS INT64)                   AS quarter,
+  CAST(month         AS INT64)                   AS month,
+  CAST(day_of_month  AS INT64)                   AS day_of_month,
+  CAST(day_of_week   AS INT64)                   AS day_of_week,
+
+  -- Carrier and flight identity
+  CAST(op_unique_carrier AS STRING)              AS carrier_code,
+  CAST(op_carrier_fl_num AS STRING)              AS flight_number,
+  CAST(tail_num          AS STRING)              AS tail_number,
+
+  -- Airport codes
+  CAST(origin      AS STRING)                    AS origin_airport_code,
+  CAST(dest        AS STRING)                    AS dest_airport_code,
+
+  -- Scheduled and actual times (HHMM integer format from BTS)
+  CAST(crs_dep_time  AS INT64)                   AS scheduled_dep_time,
+  CAST(dep_time      AS FLOAT64)                 AS actual_dep_time,
+  CAST(crs_arr_time  AS INT64)                   AS scheduled_arr_time,
+  CAST(arr_time      AS FLOAT64)                 AS actual_arr_time,
+
+  -- Delay fields (minutes, nullable)
+  CAST(dep_delay         AS FLOAT64)             AS dep_delay_minutes,
+  CAST(arr_delay         AS FLOAT64)             AS arr_delay_minutes,
+  CAST(carrier_delay     AS FLOAT64)             AS carrier_delay_minutes,
+  CAST(weather_delay     AS FLOAT64)             AS weather_delay_minutes,
+  CAST(nas_delay         AS FLOAT64)             AS nas_delay_minutes,
+  CAST(security_delay    AS FLOAT64)             AS security_delay_minutes,
+  CAST(late_aircraft_delay AS FLOAT64)           AS late_aircraft_delay_minutes,
+
+  -- Cancellation / diversion
+  CAST(cancelled   AS FLOAT64) = 1.0             AS is_cancelled,
+  CAST(cancellation_code AS STRING)              AS cancellation_code,
+  CAST(diverted    AS FLOAT64) = 1.0             AS is_diverted,
+
+  -- Distance and time
+  CAST(distance    AS FLOAT64)                   AS distance_miles,
+  CAST(air_time    AS FLOAT64)                   AS air_time_minutes,
+  CAST(actual_elapsed_time AS FLOAT64)           AS actual_elapsed_time_minutes,
+  CAST(crs_elapsed_time    AS FLOAT64)           AS scheduled_elapsed_time_minutes
+
+FROM ${ref("raw_bts_flights")}
