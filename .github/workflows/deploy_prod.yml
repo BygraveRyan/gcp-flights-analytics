@@ -8,6 +8,7 @@ on:
 
 jobs:
   deploy-functions:
+    name: Deploy Cloud Functions
     runs-on: ubuntu-latest
     permissions:
       contents: 'read'
@@ -20,8 +21,6 @@ jobs:
       - name: Auth to GCP
         uses: 'google-github-actions/auth@v2'
         with:
-          # Use the Workload Identity Provider for best practice in 2026
-          # Or the secret key if you haven't set up WIF yet
           credentials_json: '${{ secrets.GCP_SA_KEY }}'
 
       - name: Set up Cloud SDK
@@ -29,13 +28,32 @@ jobs:
         with:
           project_id: 'flights-analytics-prod'
 
-      - name: Deploy OpenSky Ingestion
+      - name: Deploy fn-ingest-fr24
         run: |
-          gcloud functions deploy fn-ingest-opensky \
+          gcloud functions deploy fn-ingest-fr24 \
             --gen2 \
             --runtime=python312 \
             --region=europe-west2 \
-            --source=cloud_functions/ingest_opensky \
-            --entry-point=ingest_opensky \
+            --source=cloud_functions/ingest_fr24 \
+            --entry-point=ingest_fr24 \
             --trigger-http \
+            --no-allow-unauthenticated \
+            --timeout=120s \
+            --memory=256Mi \
+            --min-instances=0 \
+            --service-account=flights-pipeline-sa@flights-analytics-prod.iam.gserviceaccount.com
+
+      - name: Deploy fn-ingest-bts-csv
+        run: |
+          gcloud functions deploy fn-ingest-bts-csv \
+            --gen2 \
+            --runtime=python312 \
+            --region=europe-west2 \
+            --source=cloud_functions/ingest_bts_csv \
+            --entry-point=ingest_bts_csv \
+            --trigger-http \
+            --no-allow-unauthenticated \
+            --timeout=300s \
+            --memory=512Mi \
+            --min-instances=0 \
             --service-account=flights-pipeline-sa@flights-analytics-prod.iam.gserviceaccount.com
