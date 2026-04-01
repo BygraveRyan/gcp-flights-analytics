@@ -1,4 +1,4 @@
-name: "Validate SQL"
+name: "Validate BigQuery DDL"
 
 on:
   pull_request:
@@ -29,14 +29,14 @@ jobs:
         with:
           project_id: 'flights-analytics-prod'
 
-      - name: Dry Run — raw_fr24_positions DDL
+      - name: Dry Run — raw_fr24_positions
         run: |
           bq query \
             --use_legacy_sql=false \
             --dry_run \
             "$(cat bigquery/ddl/raw_fr24_positions.sql)"
 
-      - name: Dry Run — raw_bts_flights DDL
+      - name: Dry Run — raw_bts_flights
         run: |
           bq query \
             --use_legacy_sql=false \
