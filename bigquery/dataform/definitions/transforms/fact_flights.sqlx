@@ -1,0 +1,56 @@
+config {
+  type: "incremental",
+  schema: "flights_dw",
+  uniqueKey: ["flight_key"],
+  dependencies: ["stg_fr24_positions", "stg_bts_flights", "dim_aircraft", "dim_airport", "dim_date"]
+}
+
+SELECT
+  -- Surrogate key: MD5 of fr24_id + ingestion_timestamp
+  TO_HEX(
+    MD5(CONCAT(
+      COALESCE(fr24.fr24_id, ''),
+      '|',
+      CAST(fr24.ingestion_timestamp AS STRING)
+    ))
+  )                                              AS flight_key,
+
+  -- Aircraft identity
+  fr24.icao24,
+  fr24.callsign,
+
+  -- Position
+  fr24.lat,
+  fr24.lon,
+  fr24.alt_ft,
+  fr24.ground_speed_kts,
+  fr24.on_ground                                 AS is_on_ground,
+
+  -- BTS join fields (left join on callsign — may be NULL when no match)
+  bts.carrier_code,
+  bts.flight_number                              AS bts_flight_number,
+  bts.origin_airport_code,
+  bts.dest_airport_code,
+  bts.flight_date,
+  bts.dep_delay_minutes,
+  bts.arr_delay_minutes,
+  bts.distance_miles,
+  bts.is_cancelled,
+  bts.is_diverted,
+  CASE
+    WHEN bts.arr_delay_minutes <= 15  THEN 'On Time'
+    WHEN bts.arr_delay_minutes <= 45  THEN 'Minor'
+    WHEN bts.arr_delay_minutes <= 120 THEN 'Moderate'
+    ELSE 'Severe'
+  END                                            AS delay_category,
+
+  -- Ingestion metadata
+  fr24.ingestion_timestamp,
+  fr24.ingestion_date
+
+FROM ${ref("stg_fr24_positions")} AS fr24
+LEFT JOIN ${ref("stg_bts_flights")} AS bts
+  ON TRIM(fr24.callsign) = CONCAT(bts.carrier_code, bts.flight_number)
+
+${ when(incremental(),
+  `WHERE fr24.ingestion_date > (SELECT MAX(ingestion_date) FROM ${self()})`) }
